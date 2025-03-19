@@ -1,0 +1,12 @@
+{
+    "device_id": "frontCam",
+    "server_ip": "10.1.35.2",
+    "apriltags_stream_port": 5800,
+    "objdetect_stream_port": 5801,
+    "capture_impl": "opencv",
+    "obj_detect_model": "lolXDNOOOO",
+    "obj_detect_max_fps": 100,
+    "apriltags_enable": true,
+    "objdetect_enable": false,
+    "video_folder": "/videos/frontCam/"
+}
