@@ -65,7 +65,12 @@ class DefaultCapture(Capture):
             self._video = None
 
         if self._video == None:
-            self._video = cv2.VideoCapture(config_store.remote_config.camera_id)
+            #Log an error
+            try:
+                self._video = cv2.VideoCapture(config_store.local_config.device_id)
+            except:
+                print("Error: Camera not found for ID: " + config_store.local_config.device_id)
+                sys.exit(1)
             self._video.set(cv2.CAP_PROP_FRAME_WIDTH, config_store.remote_config.camera_resolution_width)
             self._video.set(cv2.CAP_PROP_FRAME_HEIGHT, config_store.remote_config.camera_resolution_height)
             self._video.set(cv2.CAP_PROP_AUTO_EXPOSURE, config_store.remote_config.camera_auto_exposure)
