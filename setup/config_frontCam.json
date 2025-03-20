@@ -8,5 +8,5 @@
     "obj_detect_max_fps": 100,
     "apriltags_enable": true,
     "objdetect_enable": false,
-    "video_folder": "/videos/frontCam/"
+    "video_folder": "/Users/pennrobotics/Southmoon/videos/frontCam/"
 }
