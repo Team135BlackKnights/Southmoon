@@ -6,7 +6,7 @@ run_instance() {
     local config_file="$1"
     local calib_file="$2"
     while true; do
-        python3 init.py --config "$config_file" --calibration "$calib_file"
+        python3 /Users/pennrobotics/Southmoon/init.py --config "$config_file" --calibration "$calib_file"
         echo "$(date): Instance ($config_file, $calib_file) failed. Restarting in 5 seconds." | tee -a ~/camera_log.txt
         sleep 5
     done

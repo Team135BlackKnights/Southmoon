@@ -114,3 +114,134 @@ OpenCV: camera failed to properly initialize!
 [ WARN:0@0.722] global cap.cpp:323 open VIDEOIO(OBSENSOR): raised unknown C++ exception!
 
 
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+    local_config_source.update(config)
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    local_config_source.update(config)
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+OpenCV: not authorized to capture video (status 0), requesting...
+OpenCV: camera failed to properly initialize!
+[ WARN:0@0.720] global cap.cpp:323 open VIDEOIO(OBSENSOR): raised unknown C++ exception!
+
+
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+Traceback (most recent call last):
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+    with open(self._config_filename, "r") as config_file:
+    local_config_source.update(config)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+    local_config_source.update(config)
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+    local_config_source.update(config)
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    with open(self._config_filename, "r") as config_file:
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    local_config_source.update(config)
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    with open(self._config_filename, "r") as config_file:
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+    local_config_source.update(config)
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    local_config_source.update(config)
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
