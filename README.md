@@ -1,8 +1,8 @@
-# Southstar
+# Southmoon
 
 Northstar is 6328's AprilTag tracking and object detection system.
 
-Southstar, on the other hand, is random.
+Southmoon, on the other hand, is random.
 
 Object detection models can be found [here](https://drive.google.com/drive/folders/1l3Bx3FGBGiY3hcpaPtvrNNPMZHChCi9w?usp=sharing), and are available under an AGPL-3.0 license located in the same folder.
 
