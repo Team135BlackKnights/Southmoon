@@ -276,6 +276,7 @@ class GStreamerCapture(Capture):
 
 CAPTURE_IMPLS = {
     "": DefaultCapture,
+    "opencv": DefaultCapture,
     "avfoundation": AVFoundationCapture,
     "pylon": lambda: PylonCapture(),
     "pylon-flipped": lambda: PylonCapture(is_flipped=True),
