@@ -4,7 +4,7 @@
 # Use of this source code is governed by an MIT-style
 # license that can be found in the LICENSE file at
 # the root directory of this project.
-
+import datetime
 import json
 
 import cv2
@@ -40,14 +40,37 @@ class FileConfigSource(ConfigSource):
             config_store.local_config.video_folder = config_data["video_folder"]
 
         # Get calibration
-        calibration_store = cv2.FileStorage(self._calibration_filename, cv2.FILE_STORAGE_READ)
-        camera_matrix = calibration_store.getNode("camera_matrix").mat()
-        distortion_coefficients = calibration_store.getNode("distortion_coefficients").mat()
-        calibration_store.release()
-        if type(camera_matrix) == numpy.ndarray and type(distortion_coefficients) == numpy.ndarray:
-            config_store.local_config.camera_matrix = camera_matrix
-            config_store.local_config.distortion_coefficients = distortion_coefficients
-            config_store.local_config.has_calibration = True
+        #Try this, if fails, perhaps first boot? Look for the file NORMALLY, read it, and then save it to CV2
+        try:
+            calibration_store = cv2.FileStorage(self._calibration_filename, cv2.FILE_STORAGE_READ)
+            camera_matrix = calibration_store.getNode("camera_matrix").mat()
+            distortion_coefficients = calibration_store.getNode("distortion_coefficients").mat()
+            calibration_store.release()
+            if type(camera_matrix) == numpy.ndarray and type(distortion_coefficients) == numpy.ndarray:
+                config_store.local_config.camera_matrix = camera_matrix
+                config_store.local_config.distortion_coefficients = distortion_coefficients
+                config_store.local_config.has_calibration = True
+        except:
+            #Attempt to read the file normally, and then save it to CV2
+            try:
+                with open(self._calibration_filename, "r") as calibration_file:
+                    calibration_data = json.loads(calibration_file.read())
+                    #We have the data, save it to CV2, and then save it to the config store.
+                    camera_matrix = numpy.array(calibration_data["camera_matrix"])
+                    distortion_coefficients = numpy.array(calibration_data["distortion_coefficients"])
+                    config_store.local_config.camera_matrix = camera_matrix
+                    config_store.local_config.distortion_coefficients = distortion_coefficients
+                    config_store.local_config.has_calibration = True
+                    calibration_store = cv2.FileStorage(self._calibration_filename, cv2.FILE_STORAGE_WRITE)
+                    calibration_store.write("calibration_date", str(datetime.datetime.now()))
+                    calibration_store.write("camera_matrix", camera_matrix)
+                    calibration_store.write("distortion_coefficients", distortion_coefficients)
+                    calibration_store.release()
+                    pass
+            except:
+                #No file, no calibration data, nothing. Just set the flag to false.
+                config_store.local_config.has_calibration = False
+                pass
 
 
 class NTConfigSource(ConfigSource):
