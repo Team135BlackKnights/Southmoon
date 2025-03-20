@@ -40,7 +40,7 @@ class FFmpegVideoWriter(VideoWriter):
     def start(self, config: ConfigStore, is_gray: bool) -> None:
         filename = (
             config.local_config.video_folder
-            + config.local_config.device_id
+            + str(config.local_config.device_id)
             + "_"
             + datetime.fromtimestamp(config.remote_config.timestamp).strftime("%Y%m%d_%H%M%S")
             + ".mkv"

@@ -49,7 +49,7 @@ class NTOutputPublisher(OutputPublisher):
         if not self._init_complete:
             self._init_complete = True
             nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
-                "/" + config.local_config.device_id + "/output"
+                "/" + str(config.local_config.device_id) + "/output"
             )
             self._observations_pub = nt_table.getDoubleArrayTopic("observations").publish(
                 ntcore.PubSubOptions(periodic=0.01, sendAll=True, keepDuplicates=True)
