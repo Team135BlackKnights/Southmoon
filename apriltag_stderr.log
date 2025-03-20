@@ -25,3 +25,25 @@ OpenCV: Couldn't read movie file ""
 OpenCV(4.10.0) /Users/xperience/GHA-Actions-OpenCV/_work/opencv-python/opencv-python/opencv/modules/videoio/src/cap_images.cpp:300: error: (-215:Assertion failed) !_filename.empty() in function 'open'
 
 
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+Traceback (most recent call last):
+  File "/Users/pennrobotics/Southmoon/init.py", line 38, in <module>
+    local_config_source.update(config)
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    local_config_source.update(config)
+  File "/Users/pennrobotics/Southmoon/config/ConfigSource.py", line 29, in update
+    with open(self._config_filename, "r") as config_file:
+    with open(self._config_filename, "r") as config_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    with open(self._config_filename, "r") as config_file:
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_rightCam.json'
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/pennrobotics/Southmoon/setup/config_backCam.json'
+OpenCV: Couldn't read video stream from file "frontCam"
