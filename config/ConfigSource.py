@@ -92,7 +92,7 @@ class NTConfigSource(ConfigSource):
             nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
                 "/" + str(config_store.local_config.device_id) + "/config"
             )
-            self._camera_id_sub = nt_table.getIntegerTopic("camera_id").subscribe(str(RemoteConfig.camera_id))
+            self._camera_id_sub = nt_table.getIntegerTopic("camera_id").subscribe(RemoteConfig.camera_id)
             self._camera_resolution_width_sub = nt_table.getIntegerTopic("camera_resolution_width").subscribe(
                 RemoteConfig.camera_resolution_width
             )
