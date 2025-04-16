@@ -65,7 +65,12 @@ class DefaultCapture(Capture):
             self._video = None
 
         if self._video == None:
-            self._video = cv2.VideoCapture(config_store.remote_config.camera_id)
+            #Log an error
+            try:
+                self._video = cv2.VideoCapture(config_store.local_config.device_id)
+            except:
+                print("Error: Camera not found for ID: " + config_store.local_config.device_id)
+                sys.exit(1)
             self._video.set(cv2.CAP_PROP_FRAME_WIDTH, config_store.remote_config.camera_resolution_width)
             self._video.set(cv2.CAP_PROP_FRAME_HEIGHT, config_store.remote_config.camera_resolution_height)
             self._video.set(cv2.CAP_PROP_AUTO_EXPOSURE, config_store.remote_config.camera_auto_exposure)
@@ -95,14 +100,14 @@ class AVFoundationCapture(Capture):
             sys.exit(1)
 
         if self._video == None:
-            camera_id_split = config_store.remote_config.camera_id.split(":")
+            camera_id_split = str(config_store.remote_config.camera_id).split(":")
             if config_store.remote_config.camera_id == "" or len(camera_id_split) != 3:
                 print("No camera ID, waiting to start capture session")
             else:
                 devices = list(AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo))
                 devices.sort(key=lambda x: x.uniqueID())
                 for index, device in enumerate(devices):
-                    if device.uniqueID() == config_store.remote_config.camera_id.replace(":", ""):
+                    if device.uniqueID() == str(config_store.remote_config.camera_id).replace(":", ""):
                         camera_location_id = camera_id_split[0]
                         camera_vendor_id = camera_id_split[1]
                         camera_product_id = camera_id_split[2]
@@ -130,7 +135,7 @@ class AVFoundationCapture(Capture):
         )
 
         if self._video == None:
-            if config_store.remote_config.camera_id != "":
+            if str(config_store.remote_config.camera_id) != "0":
                 print("Camera not found, restarting")
                 sys.exit(1)
             return False, None
@@ -276,6 +281,7 @@ class GStreamerCapture(Capture):
 
 CAPTURE_IMPLS = {
     "": DefaultCapture,
+    "opencv": DefaultCapture,
     "avfoundation": AVFoundationCapture,
     "pylon": lambda: PylonCapture(),
     "pylon-flipped": lambda: PylonCapture(is_flipped=True),

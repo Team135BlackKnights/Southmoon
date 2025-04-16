@@ -64,7 +64,8 @@ if __name__ == "__main__":
         objdetect_worker.start()
 
     ntcore.NetworkTableInstance.getDefault().setServer(config.local_config.server_ip)
-    ntcore.NetworkTableInstance.getDefault().startClient4(config.local_config.device_id)
+    #convert the ID to string
+    ntcore.NetworkTableInstance.getDefault().startClient4(str(config.local_config.device_id))
 
     apriltags_frame_count = 0
     apriltags_last_print = 0

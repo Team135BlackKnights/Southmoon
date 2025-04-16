@@ -1,0 +1,45 @@
+Starting all camera instances...
+Starting all camera instances...
+Starting all camera instances...
+Starting all camera instances...
+[03/19 23:34:47.057080][info][74472][Context.cpp:69] Context created with config: default config!
+[03/19 23:34:47.057113][info][74472][Context.cpp:74] Context work_dir=/Users/pennrobotics/Southmoon
+[03/19 23:34:47.057119][info][74472][Context.cpp:77] 	- SDK version: 1.9.4
+[03/19 23:34:47.057124][info][74472][Context.cpp:78] 	- SDK stage version: main
+[03/19 23:34:47.057130][info][74472][Context.cpp:82] get config EnumerateNetDevice:false
+[03/19 23:34:47.057135][info][74472][MacPal.cpp:36] createObPal: create MacPal!
+[03/19 23:34:47.060954][info][74472][MacPal.cpp:104] Create PollingDeviceWatcher!
+[03/19 23:34:47.060977][info][74472][DeviceManager.cpp:15] Current found device(s): (0)
+[03/19 23:34:47.060985][info][74472][Pipeline.cpp:15] Try to create pipeline with default device.
+[03/19 23:34:47.060991][warning][74472][ObException.cpp:5] No device found, fail to create pipeline!
+[03/19 23:34:47.061788][info][74472][Context.cpp:90] Context destroyed
+Starting all camera instances...
+Wed Mar 19 23:40:46 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:46 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:46 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.
+[03/19 23:40:46.898371][info][78528][Context.cpp:69] Context created with config: default config!
+[03/19 23:40:46.898392][info][78528][Context.cpp:74] Context work_dir=/
+[03/19 23:40:46.898398][info][78528][Context.cpp:77] 	- SDK version: 1.9.4
+[03/19 23:40:46.898403][info][78528][Context.cpp:78] 	- SDK stage version: main
+[03/19 23:40:46.898409][info][78528][Context.cpp:82] get config EnumerateNetDevice:false
+[03/19 23:40:46.898414][info][78528][MacPal.cpp:36] createObPal: create MacPal!
+[03/19 23:40:46.901819][info][78528][MacPal.cpp:104] Create PollingDeviceWatcher!
+[03/19 23:40:46.901834][info][78528][DeviceManager.cpp:15] Current found device(s): (0)
+[03/19 23:40:46.901841][info][78528][Pipeline.cpp:15] Try to create pipeline with default device.
+[03/19 23:40:46.901846][warning][78528][ObException.cpp:5] No device found, fail to create pipeline!
+[03/19 23:40:46.902552][info][78528][Context.cpp:90] Context destroyed
+Wed Mar 19 23:40:52 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:52 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:52 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:58 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:58 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:40:58 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:04 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:04 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:04 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:10 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:10 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:10 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:16 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_extraFrontCam.json, /Users/pennrobotics/Southmoon/setup/calibration_extraFrontCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:16 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_rightCam.json, /Users/pennrobotics/Southmoon/setup/calibration_rightCam.json) failed. Restarting in 5 seconds.
+Wed Mar 19 23:41:16 EDT 2025: Instance (/Users/pennrobotics/Southmoon/setup/config_backCam.json, calibration_backCam.json) failed. Restarting in 5 seconds.

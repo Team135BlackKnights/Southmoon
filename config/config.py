@@ -13,7 +13,7 @@ import numpy.typing
 
 @dataclass
 class LocalConfig:
-    device_id: str = ""
+    device_id: int = 0
     server_ip: str = ""
     apriltags_stream_port: int = 8000
     objdetect_stream_port: int = 8001
@@ -30,7 +30,7 @@ class LocalConfig:
 
 @dataclass
 class RemoteConfig:
-    camera_id: str = ""
+    camera_id: int = 0
     camera_resolution_width: int = 0
     camera_resolution_height: int = 0
     camera_auto_exposure: int = 0
