@@ -1,0 +1,15 @@
+Starting all camera instances...
+Tue Apr 22 13:20:54 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:20:59 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:04 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:09 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:14 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:19 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:25 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:30 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:35 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:40 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:45 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Tue Apr 22 13:21:50 EDT 2025: Instance (/Users/pennrobotics/Documents/GitHub/Southmoon/setup/config_frontCam.json, /Users/pennrobotics/Documents/GitHub/Southmoon/setup/calibration_frontCam.json) failed. Restarting in 5 seconds.
+Starting all camera instances...
+Starting all camera instances...
