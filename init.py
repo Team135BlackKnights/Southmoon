@@ -100,6 +100,7 @@ if __name__ == "__main__":
 
         # Exit if no frame
         if not success:
+            print("Found no frame.")
             time.sleep(0.5)
             continue
 
