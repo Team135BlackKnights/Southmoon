@@ -5,6 +5,7 @@
 # license that can be found in the LICENSE file at
 # the root directory of this project.
 
+#imports
 import queue
 from typing import List, Tuple, Union
 
@@ -22,8 +23,9 @@ DEMO_ID = 42
 
 
 def apriltag_worker(
-    q_in: queue.Queue[Tuple[float, cv2.Mat, ConfigStore]],
-    q_out: queue.Queue[
+        #defines the queue for info intake and outtake
+    q_in: queue.Queue[Tuple[float, cv2.Mat, ConfigStore]], #robot passes in timestamp, image, and config to source code
+    q_out: queue.Queue[                                    #source code passes timestamp and image observation data to robot
         Tuple[
             float,
             List[FiducialImageObservation],
@@ -34,6 +36,8 @@ def apriltag_worker(
     ],
     server_port: int,
 ):
+    
+    #creates objects source code uses to calculate pose and stream the video feed
     fiducial_detector = ArucoFiducialDetector(cv2.aruco.DICT_APRILTAG_36h11)
     camera_pose_estimator = MultiTargetCameraPoseEstimator()
     tag_angle_calculator = CameraMatrixTagAngleCalculator()
@@ -42,21 +46,24 @@ def apriltag_worker(
     stream_server.start(server_port)
 
     while True:
-        sample = q_in.get()
+        sample = q_in.get() #storing input frame data from the robot 
         timestamp: float = sample[0]
         image: cv2.Mat = sample[1]
         config: ConfigStore = sample[2]
 
-        image_observations = fiducial_detector.detect_fiducials(image, config)
+        image_observations = fiducial_detector.detect_fiducials(image, config) #stores pairs of data in [image, config] form 
         camera_pose_observation = camera_pose_estimator.solve_camera_pose(
             [x for x in image_observations if x.tag_id != DEMO_ID], config
-        )
+        ) #stores the position estimate based on the solve_camera_pose function
+
         tag_angle_observations = [
             tag_angle_calculator.calc_tag_angles(x, config) for x in image_observations if x.tag_id != DEMO_ID
-        ]
-        tag_angle_observations = [x for x in tag_angle_observations if x != None]
-        demo_image_observations = [x for x in image_observations if x.tag_id == DEMO_ID]
-        demo_pose_observation: Union[FiducialPoseObservation, None] = None
+        ] #stores the calculated angle of the bot based on apriltags
+
+        tag_angle_observations = [x for x in tag_angle_observations if x != None] #filters out nonetypes from tag_angle_observations
+        demo_image_observations = [x for x in image_observations if x.tag_id == DEMO_ID] #adds only image observations with the set Demo ID
+        demo_pose_observation: Union[FiducialPoseObservation, None] = None #limits the type of demo_pose_observation to the base FiducialPoseObservation type or None
+
         if len(demo_image_observations) > 0:
             demo_pose_observation = tag_pose_estimator.solve_fiducial_pose(demo_image_observations[0], config)
 
