@@ -1,6 +1,6 @@
 {
-  "device_id": "0x123000005c80a00",
-  "server_ip": "localhost",
+  "device_id": "BackCam",
+  "server_ip": "10.0.0.1",
   "apriltags_stream_port": 8002,
   "objdetect_stream_port": 8003,
   "capture_impl": "avfoundation",
@@ -8,5 +8,5 @@
   "obj_detect_max_fps": -1,
   "apriltags_enable": true,
   "objdetect_enable": false,
-  "video_folder": "/Users/team135/Documents/GitHub/Southmoon/videos/"
+  "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
 }

@@ -1,6 +1,6 @@
 {
   "device_id": "FrontCam",
-  "server_ip": "localhost",
+  "server_ip": "10.0.0.1",
   "apriltags_stream_port": 8000,
   "objdetect_stream_port": 8001,
   "capture_impl": "avfoundation",
@@ -8,5 +8,5 @@
   "obj_detect_max_fps": -1,
   "apriltags_enable": true,
   "objdetect_enable": false,
-  "video_folder": "/Users/team135/Documents/GitHub/Southmoon/videos/"
+  "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
 }

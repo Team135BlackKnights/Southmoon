@@ -15,6 +15,7 @@ from typing import Tuple, Union
 import AVFoundation
 import cv2
 import numpy
+import ntcore
 from config.config import ConfigStore
 from pypylon import pylon
 
@@ -100,12 +101,22 @@ class AVFoundationCapture(Capture):
             #sys.exit(1)
 
         if self._video == None:
-            camera_id_split = str(config_store.remote_config.camera_id)
             if config_store.remote_config.camera_id == "":
                 print("No camera ID, waiting to start capture session")
             else:
                 devices = list(AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo))
                 devices.sort(key=lambda x: x.uniqueID())
+                print("Available cameras:")
+                nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
+                "/" + str(config_store.local_config.device_id) + "/calibration"
+            )
+                for device in devices:
+                    print(f"  {device.localizedName()} ({device.uniqueID()})")
+                # Publish available cameras to NetworkTables
+                # NetworkTables only supports lists of primitives, so publish as list of 'name:id' strings
+                nt_table.putValue("available_cameras", [
+                    f"{device.localizedName()}:{device.uniqueID()}" for device in devices
+                ])
                 for index, device in enumerate(devices):
                     if device.uniqueID() == str(config_store.remote_config.camera_id):
 
