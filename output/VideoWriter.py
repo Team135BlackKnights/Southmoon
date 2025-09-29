@@ -16,7 +16,7 @@ from config.config import ConfigStore
 from output.overlay_util import overlay_image_observation, overlay_obj_detect_observation
 from vision_types import FiducialImageObservation, ObjDetectObservation
 
-FRAMERATE = 25
+FRAMERATE = 10
 
 
 class VideoWriter:

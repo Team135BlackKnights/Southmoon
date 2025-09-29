@@ -97,37 +97,25 @@ class AVFoundationCapture(Capture):
             print("Restarting capture session")
             self._video.release()
             self._video = None
-            sys.exit(1)
+            #sys.exit(1)
 
         if self._video == None:
-            camera_id_split = str(config_store.remote_config.camera_id).split(":")
-            if config_store.remote_config.camera_id == "" or len(camera_id_split) != 3:
+            camera_id_split = str(config_store.remote_config.camera_id)
+            if config_store.remote_config.camera_id == "":
                 print("No camera ID, waiting to start capture session")
             else:
                 devices = list(AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo))
                 devices.sort(key=lambda x: x.uniqueID())
                 for index, device in enumerate(devices):
-                    if device.uniqueID() == str(config_store.remote_config.camera_id).replace(":", ""):
-                        camera_location_id = camera_id_split[0]
-                        camera_vendor_id = camera_id_split[1]
-                        camera_product_id = camera_id_split[2]
+                    if device.uniqueID() == str(config_store.remote_config.camera_id):
 
-                        subprocess.run(
-                            [
-                                "./ns-iokit-ctl/build/ns_iokit_ctl",
-                                camera_vendor_id,
-                                camera_product_id,
-                                camera_location_id,
-                                str(config_store.remote_config.camera_auto_exposure),
-                                str(config_store.remote_config.camera_exposure),
-                                str(int(config_store.remote_config.camera_gain)),
-                            ],
-                            check=True,
-                        )
-
+                        
                         self._video = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
                         self._video.set(cv2.CAP_PROP_FRAME_WIDTH, config_store.remote_config.camera_resolution_width)
                         self._video.set(cv2.CAP_PROP_FRAME_HEIGHT, config_store.remote_config.camera_resolution_height)
+                        self._video.set(cv2.CAP_PROP_AUTO_EXPOSURE, config_store.remote_config.camera_auto_exposure)
+                        self._video.set(cv2.CAP_PROP_EXPOSURE, config_store.remote_config.camera_exposure)
+                        self._video.set(cv2.CAP_PROP_GAIN, int(config_store.remote_config.camera_gain))
                         break
 
         self._last_config = ConfigStore(
@@ -136,16 +124,16 @@ class AVFoundationCapture(Capture):
 
         if self._video == None:
             if str(config_store.remote_config.camera_id) != "0":
-                print("Camera not found, restarting")
-                sys.exit(1)
+                print("Camera not found, retrying...")
+                #sys.exit(1)/
             return False, None
         else:
             retval, image = self._video.read()
             if not retval:
-                print("Capture session failed, restarting")
+                print("Capture session failed, retrying...")
                 self._video.release()
                 self._video = None  # Force reconnect
-                sys.exit(1)
+                #sys.exit(1) 
             return retval, image
 
 

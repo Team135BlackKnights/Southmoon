@@ -1,0 +1,12 @@
+{
+  "device_id": "0x123000005c80a00",
+  "server_ip": "localhost",
+  "apriltags_stream_port": 8002,
+  "objdetect_stream_port": 8003,
+  "capture_impl": "avfoundation",
+  "obj_detect_model": "",
+  "obj_detect_max_fps": -1,
+  "apriltags_enable": true,
+  "objdetect_enable": false,
+  "video_folder": "/Users/team135/Documents/GitHub/Southmoon/videos/"
+}
