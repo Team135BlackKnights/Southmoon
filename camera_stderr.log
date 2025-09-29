@@ -1,0 +1,26 @@
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/usr/local/bin/start_cameras.sh: line 3: /Users/pennrobotics/Documents/G$: Operation not permitted
+chdir: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+OpenCV: not authorized to capture video (status 0), requesting...
+OpenCV: camera failed to properly initialize!
+[ WARN:0@0.761] global cap.cpp:323 open VIDEOIO(OBSENSOR): raised unknown C++ exception!
+
+
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/usr/local/bin/start_cameras.sh: line 3: /Users/pennrobotics/Documents/G$: Operation not permitted
+chdir: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+127.0.0.1 - - [28/Sep/2025 22:48:54] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2025 22:48:54] "GET /stream.mjpg HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2025 22:48:54] code 404, message Not Found
+127.0.0.1 - - [28/Sep/2025 22:48:54] "GET /favicon.ico HTTP/1.1" 404 -
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/usr/local/bin/start_cameras.sh: line 3: /Users/pennrobotics/Documents/G$: Operation not permitted
+chdir: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+127.0.0.1 - - [28/Sep/2025 22:50:10] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2025 22:50:10] "GET /stream.mjpg HTTP/1.1" 200 -
+127.0.0.1 - - [28/Sep/2025 22:50:11] code 404, message Not Found
+127.0.0.1 - - [28/Sep/2025 22:50:11] "GET /favicon.ico HTTP/1.1" 404 -
+10.0.0.1 - - [28/Sep/2025 22:50:29] "GET / HTTP/1.1" 200 -
+10.0.0.1 - - [28/Sep/2025 22:50:29] "GET /stream.mjpg HTTP/1.1" 200 -
+10.0.0.1 - - [28/Sep/2025 22:50:29] code 404, message Not Found
+10.0.0.1 - - [28/Sep/2025 22:50:29] "GET /favicon.ico HTTP/1.1" 404 -
