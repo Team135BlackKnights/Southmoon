@@ -10,7 +10,7 @@
 # Author: Niels A. Moseley
 #
 
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 project (openpnp-capture-test)
 
 # add include directory 

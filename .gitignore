@@ -1,2 +1,12 @@
 /calibration/__pycache__
 *.pyc
+*.cpp
+*.yaml
+*.cmake
+*.make
+*.ts
+*.check_cache
+*.out
+*.c
+*.marks
+/ns-iokit-ctl

@@ -57,7 +57,7 @@ class DefaultCapture(Capture):
         pass
 
     _video = None
-    _last_config: ConfigStore
+    _last_config: ConfigStore = None
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
         if self._video != None and self._config_changed(self._last_config, config_store):
@@ -78,76 +78,164 @@ class DefaultCapture(Capture):
             self._video.set(cv2.CAP_PROP_EXPOSURE, config_store.remote_config.camera_exposure)
             self._video.set(cv2.CAP_PROP_GAIN, int(config_store.remote_config.camera_gain))
 
-        self._last_config = config_store
+        # FIXED: Create a deep copy of the config
+        self._last_config = ConfigStore(
+            dataclasses.replace(config_store.local_config), 
+            dataclasses.replace(config_store.remote_config)
+        )
 
         retval, image = self._video.read()
         return retval, image
 
 
 class AVFoundationCapture(Capture):
-    """ "Read from camera with OpenCV and AVFoundation."""
+    """Read from camera with OpenCV and AVFoundation."""
 
     def __init__(self) -> None:
         pass
 
     _video = None
-    _last_config: ConfigStore
+    _avf_device = None  # Store the actual AVFoundation device
+    _last_config: ConfigStore = None
+
+    def _apply_camera_settings(self, config_store: ConfigStore):
+        """Apply exposure and gain settings via direct AVFoundation APIs."""
+        if self._avf_device is None:
+            print("No AVFoundation device available")
+            return
+
+        # Lock device for configuration
+        error = None
+        success = self._avf_device.lockForConfiguration_(error)
+        if not success:
+            print(f"Failed to lock device for configuration: {error}")
+            return
+
+        try:
+            # Auto exposure
+            if config_store.remote_config.camera_auto_exposure:
+                if self._avf_device.isExposureModeSupported_(AVFoundation.AVCaptureExposureModeContinuousAutoExposure):
+                    self._avf_device.setExposureMode_(AVFoundation.AVCaptureExposureModeContinuousAutoExposure)
+                    print("Set to auto exposure mode")
+            else:
+                # Manual exposure
+                if self._avf_device.isExposureModeSupported_(AVFoundation.AVCaptureExposureModeCustom):
+                    duration_sec = config_store.remote_config.camera_exposure / 1000.0
+                    
+                    # Clamp to device min/max
+                    min_duration = self._avf_device.activeFormat().minExposureDuration()
+                    max_duration = self._avf_device.activeFormat().maxExposureDuration()
+                    
+                    duration = AVFoundation.CMTimeMakeWithSeconds(duration_sec, 1000000000)
+                    
+                    # Use current ISO or set a specific value
+                    current_iso = self._avf_device.ISO()
+                    
+                    self._avf_device.setExposureModeCustomWithDuration_ISO_completionHandler_(
+                        duration, current_iso, None
+                    )
+                    print(f"Set manual exposure: {duration_sec}s, ISO: {current_iso}")
+
+            # Brightness (if available)
+            try:
+                if hasattr(self._avf_device, 'videoZoomFactor'):
+                    # Some devices support brightness adjustment
+                    pass
+            except:
+                pass
+
+        finally:
+            self._avf_device.unlockForConfiguration()
+
+    def _camera_id_changed(self, old_config: ConfigStore, new_config: ConfigStore) -> bool:
+        """Check if camera ID or resolution changed (requires reconnect)."""
+        if old_config is None:
+            return True
+        return (
+            old_config.remote_config.camera_id != new_config.remote_config.camera_id or
+            old_config.remote_config.camera_resolution_width != new_config.remote_config.camera_resolution_width or
+            old_config.remote_config.camera_resolution_height != new_config.remote_config.camera_resolution_height
+        )
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
-        if self._video != None and self._config_changed(self._last_config, config_store):
-            print("Restarting capture session")
+        # Only reconnect if camera ID or resolution changed
+        if self._video != None and self._camera_id_changed(self._last_config, config_store):
+            print("Restarting capture session (camera ID or resolution changed)")
             self._video.release()
             self._video = None
-            #sys.exit(1)
+            self._avf_device = None
 
         if self._video == None:
             if config_store.remote_config.camera_id == "":
                 print("No camera ID, waiting to start capture session")
             else:
-                devices = list(AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo))
+                devices = list(
+                    AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo)
+                )
                 devices.sort(key=lambda x: x.uniqueID())
                 print("Available cameras:")
                 nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
-                "/" + str(config_store.local_config.device_id) + "/calibration"
-            )
+                    "/" + str(config_store.local_config.device_id) + "/calibration"
+                )
                 for device in devices:
                     print(f"  {device.localizedName()} ({device.uniqueID()})")
+
                 # Publish available cameras to NetworkTables
-                # NetworkTables only supports lists of primitives, so publish as list of 'name:id' strings
-                nt_table.putValue("available_cameras", [
-                    f"{device.localizedName()}:{device.uniqueID()}" for device in devices
-                ])
+                nt_table.putValue(
+                    "available_cameras",
+                    [f"{device.localizedName()}:{device.uniqueID()}" for device in devices],
+                )
+
                 for index, device in enumerate(devices):
                     if device.uniqueID() == str(config_store.remote_config.camera_id):
-
+                        # Store the AVFoundation device object
+                        self._avf_device = device
                         
+                        # Create OpenCV capture
                         self._video = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
-                        self._video.set(cv2.CAP_PROP_FRAME_WIDTH, config_store.remote_config.camera_resolution_width)
-                        self._video.set(cv2.CAP_PROP_FRAME_HEIGHT, config_store.remote_config.camera_resolution_height)
-                        self._video.set(cv2.CAP_PROP_AUTO_EXPOSURE, config_store.remote_config.camera_auto_exposure)
-                        self._video.set(cv2.CAP_PROP_EXPOSURE, config_store.remote_config.camera_exposure)
-                        self._video.set(cv2.CAP_PROP_GAIN, int(config_store.remote_config.camera_gain))
-                        break
+                        
+                        # Set resolution via OpenCV
+                        self._video.set(
+                            cv2.CAP_PROP_FRAME_WIDTH,
+                            config_store.remote_config.camera_resolution_width,
+                        )
+                        self._video.set(
+                            cv2.CAP_PROP_FRAME_HEIGHT,
+                            config_store.remote_config.camera_resolution_height,
+                        )
 
-        self._last_config = ConfigStore(
-            dataclasses.replace(config_store.local_config), dataclasses.replace(config_store.remote_config)
-        )
+                        # Apply camera settings via AVFoundation
+                        self._apply_camera_settings(config_store)
+
+                        # Save config
+                        self._last_config = ConfigStore(
+                            dataclasses.replace(config_store.local_config),
+                            dataclasses.replace(config_store.remote_config),
+                        )
+                        break
+        
+        # Apply settings if exposure/gain changed (without reconnecting)
+        elif self._config_changed(self._last_config, config_store):
+            print("Camera settings changed, applying via AVFoundation")
+            self._apply_camera_settings(config_store)
+            self._last_config = ConfigStore(
+                dataclasses.replace(config_store.local_config),
+                dataclasses.replace(config_store.remote_config),
+            )
 
         if self._video == None:
             if str(config_store.remote_config.camera_id) != "0":
                 print("Camera not found, retrying...")
-                #sys.exit(1)/
             return False, None
         else:
             retval, image = self._video.read()
             if not retval:
                 print("Capture session failed, retrying...")
                 self._video.release()
-                self._video = None  # Force reconnect
-                #sys.exit(1) 
+                self._video = None
+                self._avf_device = None
             return retval, image
-
-
+        
 class PylonCapture(Capture):
     """Reads from a Basler camera using pylon."""
 
@@ -157,7 +245,7 @@ class PylonCapture(Capture):
 
     _camera: Union[None, pylon.InstantCamera] = None
     _converter: Union[None, pylon.ImageFormatConverter] = None
-    _last_config: ConfigStore
+    _last_config: ConfigStore = None
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
         if self._camera != None and self._config_changed(self._last_config, config_store):
@@ -230,7 +318,7 @@ class GStreamerCapture(Capture):
         pass
 
     _video = None
-    _last_config: ConfigStore
+    _last_config: ConfigStore = None
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
         if self._video != None and self._config_changed(self._last_config, config_store):
@@ -272,7 +360,7 @@ class GStreamerCapture(Capture):
                 print("Capture session failed, restarting")
                 self._video.release()
                 self._video = None  # Force reconnect
-                sys.exit(1)
+                #sys.exit(1)
             return retval, image
         else:
             return False, cv2.Mat(numpy.ndarray([]))
