@@ -19,7 +19,7 @@ class CalibrationSession:
     _all_charuco_ids: List[numpy.ndarray] = []
     _imsize = None
 
-    NEW_CALIBRATION_FILENAME = "calibration_new.json"
+    NEW_CALIBRATION_FILENAME = "/Users/pennrobotics/Documents/GitHub/Southmoon/new_calibration.json"
 
     def __init__(self) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_1000)
@@ -44,7 +44,7 @@ class CalibrationSession:
                 cv2.aruco.drawDetectedCornersCharuco(image, charuco_corners, charuco_ids)
 
                 # Save corners
-                if save:
+                if save and charuco_corners is not None and len(charuco_corners) > 3:
                     self._all_charuco_corners.append(charuco_corners)
                     self._all_charuco_ids.append(charuco_ids)
                     print("Saved calibration frame")
