@@ -6,6 +6,7 @@
 # the root directory of this project.
 
 import argparse
+import os
 import queue
 import sys
 import threading
@@ -24,6 +25,31 @@ from output.StreamServer import MjpegServer, StreamServer
 from output.overlay_util import *
 from output.VideoWriter import FFmpegVideoWriter, VideoWriter
 from pipeline.Capture import CAPTURE_IMPLS
+import builtins
+
+class NTLogger:
+    def __init__(self, config_store=None):
+        if config_store is not None:
+            nt_path = "/" + str(config_store.local_config.device_id) + "/config/print_log"
+        else:
+            nt_path = "/unknown_device/config/print_log"
+        self.nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
+        self.log_key = "log"
+        self._buffer = ""
+
+    def write(self, msg):
+        self._buffer += str(msg)
+        if "\n" in msg:
+            self.nt_table.putString(self.log_key, self._buffer)
+            self._buffer = ""
+
+    def flush(self):
+        if self._buffer:
+            self.nt_table.putString(self.log_key, self._buffer)
+            self._buffer = ""
+
+# Save the original print function
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -36,7 +62,15 @@ if __name__ == "__main__":
     remote_config_source: ConfigSource = NTConfigSource()
     calibration_command_source: CalibrationCommandSource = NTCalibrationCommandSource()
     local_config_source.update(config)
+    original_print = builtins.print
+    nt_logger = NTLogger(config_store=config)
 
+    def nt_print(*args, **kwargs):
+        msg = " ".join(str(a) for a in args)
+        nt_logger.write(msg + "\n")
+        original_print(*args, **kwargs)
+
+    builtins.print = nt_print
     capture = CAPTURE_IMPLS[config.local_config.capture_impl]()
     output_publisher: OutputPublisher = NTOutputPublisher()
     video_writer: VideoWriter = FFmpegVideoWriter()
@@ -77,6 +111,7 @@ if __name__ == "__main__":
     last_image_observations: List[FiducialImageObservation] = []
     last_objdetect_observations: List[ObjDetectObservation] = []
     video_frame_cache: List[cv2.Mat] = []
+    consecutive_failures = 0
     while True:
         remote_config_source.update(config)
         timestamp = time.time()
@@ -101,11 +136,17 @@ if __name__ == "__main__":
         # Exit if no frame
         if not success:
             print("Found no frame.")
-            time.sleep(0.5)
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                print("Too many consecutive failures, restarting process...")
+                sys.exit(1)
+            time.sleep(0.2)
             #re set "config"
             capture.reset()
             capture = CAPTURE_IMPLS[config.local_config.capture_impl]()
             continue
+
+        consecutive_failures = 0
 
         if calibration_command_source.get_calibrating(config):
             # Calibration mode
@@ -152,7 +193,7 @@ if __name__ == "__main__":
                     apriltags_frame_count += 1
                     if time.time() - apriltags_last_print > 1:
                         apriltags_last_print = time.time()
-                        print("Running AprilTag pipeline at", apriltags_frame_count, "fps")
+                        #print("Running AprilTag pipeline at", apriltags_frame_count, "fps")
                         output_publisher.send_apriltag_fps(config, timestamp_out, apriltags_frame_count)
                         apriltags_frame_count = 0
 
@@ -183,7 +224,7 @@ if __name__ == "__main__":
                     objdetect_frame_count += 1
                     if time.time() - objdetect_last_print > 1:
                         objdetect_last_print = time.time()
-                        print("Running object detection pipeline at", objdetect_frame_count, "fps")
+                       #print("Running object detection pipeline at", objdetect_frame_count, "fps")
                         output_publisher.send_objdetect_fps(config, timestamp, objdetect_frame_count)
                         objdetect_frame_count = 0
 

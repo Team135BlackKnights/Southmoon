@@ -1,6 +1,6 @@
 {
   "device_id": "BackCam",
-  "server_ip": "10.1.35.2",
+  "server_ip": "10.0.0.1",
   "apriltags_stream_port": 8002,
   "objdetect_stream_port": 8003,
   "capture_impl": "usb",
