@@ -7,6 +7,6 @@
 *.ts
 *.check_cache
 *.out
-*.c
+
 *.marks
 /ns-iokit-ctl
