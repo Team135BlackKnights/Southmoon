@@ -7,3 +7,4 @@ pyntcore==2025.1.1.0
 pyobjc-framework-AVFoundation==10.3.2
 pypylon==4.1.0
 robotpy-wpimath==2025.1.1.0
+pyusb ==1.2.1
