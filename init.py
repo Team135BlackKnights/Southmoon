@@ -102,6 +102,9 @@ if __name__ == "__main__":
         if not success:
             print("Found no frame.")
             time.sleep(0.5)
+            #re set "config"
+            capture.reset()
+            capture = CAPTURE_IMPLS[config.local_config.capture_impl]()
             continue
 
         if calibration_command_source.get_calibrating(config):

@@ -29,7 +29,9 @@ class Capture:
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
         """Return the next frame from the camera."""
         raise NotImplementedError
-
+    def reset(self):
+        """Reset the camera connection."""
+        raise NotImplementedError
     @classmethod
     def _config_changed(cls, config_a: ConfigStore, config_b: ConfigStore) -> bool:
         if config_a == None and config_b == None:
@@ -192,10 +194,10 @@ class USBCameraCapture:
         try:
             # Try to set auto exposure (values vary by camera)
             # 0.25 = manual mode, 0.75 = auto mode for some cameras
-            if config_store.remote_config.camera_auto_exposure:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
-            else:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            #if config_store.remote_config.camera_auto_exposure == 1:
+            #    self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+            #else:
+            self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
             
             # Set exposure (may or may not work depending on camera)
             if not config_store.remote_config.camera_auto_exposure:
@@ -241,77 +243,106 @@ class USBCameraCapture:
             old_remote.camera_exposure != new_remote.camera_exposure or
             old_remote.camera_gain != new_remote.camera_gain
         )
+    def reset(self):
+        """Fully reset the camera connection, forcing AVFoundation teardown."""
+        if self._cv_capture is not None:
+            try:
+                self._cv_capture.release()
+            except Exception as e:
+                print(f"Error releasing capture: {e}")
+            self._cv_capture = None
 
+        # Force Python to clean up AVFoundation objects
+        print("Releasing CV2")
+        cv2.destroyAllWindows()
+
+        # Drop device index + config so we force full reopen
+        self._device_index = None
+        self._last_config = None
+
+        # Give macOS a moment to release the hardware
+        time.sleep(1.0)
+
+        print("Camera reset complete (AVFoundation torn down)")
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
-        """Get frame from camera."""
-        
+        """Get frame from camera, handling hotplug and reinit."""
+
         # Reconnect if camera ID or resolution changed
         if self._cv_capture is not None and self._camera_id_changed(self._last_config, config_store):
             print("Restarting capture session (camera ID or resolution changed)")
-            self._cv_capture.release()
-            self._cv_capture = None
+            self.reset()
 
         # Initialize device if needed
         if self._cv_capture is None:
             if config_store.remote_config.camera_id == "":
                 print("No camera ID, waiting to start capture session")
                 return False, None
-            
-            # Get and publish available cameras
-            cameras = self._get_usb_cameras()
-            print("Available USB cameras:")
-            
-            nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
-                f"/{config_store.local_config.device_id}/calibration"
-            )
-            
-            camera_list = []
-            for camera in cameras:
-                serial_info = f" (Serial: {camera['serial']})" if camera['serial'] else ""
-                print(f"  [{camera['index']}] {camera['name']} - {camera['unique_id']}{serial_info}")
-                camera_list.append(camera['full_id'])
-            
-            nt_table.putValue("available_cameras", camera_list)
-            
-            # Find matching device
-            device_index = self._find_device_index(config_store.remote_config.camera_id)
-            
+
+            # Try multiple times to find camera after hotplug
+            device_index = None
+            for attempt in range(10):
+                cameras = self._get_usb_cameras()
+                if cameras:
+                    device_index = self._find_device_index(config_store.remote_config.camera_id)
+                    if device_index is not None:
+                        break
+                print(f"Camera not found (attempt {attempt+1}/10), retrying...")
+                time.sleep(0.5)
+
             if device_index is None:
                 print(f"Camera not found for ID: {config_store.remote_config.camera_id}")
-                print("Available unique IDs:", [c['unique_id'] for c in cameras])
                 return False, None
-            
+
             try:
                 # Open OpenCV capture
                 print(f"Opening camera at index {device_index}")
                 self._cv_capture = cv2.VideoCapture(device_index)
                 self._device_index = device_index
-                
+
                 if not self._cv_capture.isOpened():
                     print(f"Failed to open camera at index {device_index}")
                     self._cv_capture = None
                     return False, None
-                
+
                 # Set resolution
-                self._cv_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 
-                                    config_store.remote_config.camera_resolution_width)
-                self._cv_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 
-                                    config_store.remote_config.camera_resolution_height)
-                
-                # Apply initial settings
+                self._cv_capture.set(cv2.CAP_PROP_FRAME_WIDTH,
+                                     config_store.remote_config.camera_resolution_width)
+                self._cv_capture.set(cv2.CAP_PROP_FRAME_HEIGHT,
+                                     config_store.remote_config.camera_resolution_height)
+
+                # Warmup frames with retry
+                print("Warming up camera...")
+                frame_ready = False
+                for i in range(20):
+                    ret, _ = self._cv_capture.read()
+                    if ret:
+                        print(f"  Warmup OK at frame {i+1}")
+                        frame_ready = True
+                        break
+                    else:
+                        print(f"  Warmup frame {i+1}/20 FAIL")
+                        time.sleep(0.02)
+
+                if not frame_ready:
+                    print("Camera failed to produce frames during warmup")
+                    self._cv_capture.release()
+                    self._cv_capture = None
+                    return False, None
+
+                # Apply settings *after* first valid frame
                 self._apply_opencv_settings(config_store)
-                
+
                 # Verify resolution
                 actual_width = self._cv_capture.get(cv2.CAP_PROP_FRAME_WIDTH)
                 actual_height = self._cv_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
                 print(f"Camera opened: {actual_width}x{actual_height}")
-                
+
                 # Save config
                 self._last_config = ConfigStore(
                     dataclasses.replace(config_store.local_config),
                     dataclasses.replace(config_store.remote_config),
                 )
-                
+
             except Exception as e:
                 print(f"Error opening camera: {e}")
                 import traceback
@@ -320,7 +351,7 @@ class USBCameraCapture:
                     self._cv_capture.release()
                     self._cv_capture = None
                 return False, None
-        
+
         # Apply settings if they changed (without reconnecting)
         elif self._config_changed(self._last_config, config_store):
             print("Camera settings changed, reapplying")
@@ -329,28 +360,25 @@ class USBCameraCapture:
                 dataclasses.replace(config_store.local_config),
                 dataclasses.replace(config_store.remote_config),
             )
-        
+
         # Capture frame
         if self._cv_capture is None:
             return False, None
-        
+
         try:
             retval, image = self._cv_capture.read()
-            
+
             if not retval:
-                print("Failed to capture frame, reconnecting...")
-                self._cv_capture.release()
-                self._cv_capture = None
+                print("Frame read failed, resetting camera")
+                self.reset()
                 return False, None
-            
+
             return True, image
-            
+
         except Exception as e:
             print(f"Error capturing frame: {e}")
-            self._cv_capture.release()
-            self._cv_capture = None
+            self.reset()
             return False, None
-
     def __del__(self):
         """Cleanup on deletion."""
         if self._cv_capture is not None:
