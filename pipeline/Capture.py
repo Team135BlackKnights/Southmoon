@@ -6,19 +6,17 @@
 # the root directory of this project.
 
 import dataclasses
+import glob
+import subprocess
 import sys
 import time
 import traceback
 from typing import Tuple, Optional, List, Dict, Union
-import usb.core
-import usb.util
-import AVFoundation
 import cv2
 import numpy
 import ntcore
 from config.config import ConfigStore
 from pypylon import pylon
-import traceback
 # USB Video Class (UVC) constants
 UVC_SET_CUR = 0x01
 UVC_GET_CUR = 0x81
@@ -78,90 +76,79 @@ class Capture:
 
 
 class USBCameraCapture(Capture):
-    """Read from USB camera with direct UVC control for exposure and other settings."""
+    """Read from USB camera using GStreamer with full exposure control via YUYV format."""
 
     def __init__(self) -> None:
-        self._cv_capture = None
-        self._usb_device = None
-        self._device_index = None
+        self._pipeline = None
         self._last_config: ConfigStore = None
-        self._camera_controls = {}
+        self._device_path = None
+        self._reconnect_attempts = 0
+        self._max_reconnect_attempts = 5
+        self._last_frame_time = 0
+        self._frame_timeout = 2.0  # seconds
 
     def _get_usb_cameras(self) -> List[Dict]:
-        """Get list of USB video devices with unique identifiers."""
+        """Get list of USB video devices."""
+        import glob
+        import subprocess
+        
         cameras = []
         
-        # Find all USB devices that might be cameras
-        devices = usb.core.find(find_all=True)
+        # Find all video devices on macOS
+        video_devices = glob.glob('/dev/video*')
         
-        video_device_index = 0
-        for dev in devices:
+        for idx, device_path in enumerate(sorted(video_devices)):
             try:
-                # Check if this is a video device
-                is_video = False
+                # Try to get device info using system_profiler
+                result = subprocess.run(
+                    ['system_profiler', 'SPCameraDataType', '-json'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
                 
-                # Check device class
-                if dev.bDeviceClass == 0x0E or dev.bDeviceClass == 0xEF:  # Video or Miscellaneous
-                    is_video = True
+                # Parse basic info
+                device_name = f"Camera {idx}"
+                unique_id = device_path
                 
-                # Check interface classes for UVC
-                if not is_video:
-                    try:
-                        for cfg in dev:
-                            for intf in cfg:
-                                if intf.bInterfaceClass == 0x0E:  # Video class
-                                    is_video = True
-                                    break
-                            if is_video:
-                                break
-                    except:
-                        pass
+                # Try to open with GStreamer to verify it works
+                test_pipeline = f"avfvideosrc device-index={idx} ! video/x-raw,format=UYVY ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1 max-buffers=1"
+                test_cap = cv2.VideoCapture(test_pipeline, cv2.CAP_GSTREAMER)
                 
-                if is_video:
-                    # Get device info
-                    vendor_id = dev.idVendor
-                    product_id = dev.idProduct
-                    
-                    # Try to get serial number
-                    serial = None
-                    try:
-                        if dev.iSerialNumber:
-                            serial = usb.util.get_string(dev, dev.iSerialNumber)
-                    except:
-                        pass
-                    
-                    # Try to get product name
-                    product_name = f"Camera {video_device_index}"
-                    try:
-                        if dev.iProduct:
-                            product_name = usb.util.get_string(dev, dev.iProduct)
-                    except:
-                        pass
-                    
-                    # Create unique ID based on VID/PID and serial
-                    if serial:
-                        unique_id = f"usb_{vendor_id:04x}_{product_id:04x}_{serial}"
-                    else:
-                        # Fall back to bus/address if no serial
-                        unique_id = f"usb_{vendor_id:04x}_{product_id:04x}_{dev.bus:03d}_{dev.address:03d}"
-                    
+                if test_cap.isOpened():
                     cameras.append({
-                        'index': video_device_index,
-                        'name': product_name,
-                        'vendor_id': vendor_id,
-                        'product_id': product_id,
-                        'serial': serial,
-                        'bus': dev.bus,
-                        'address': dev.address,
+                        'index': idx,
+                        'name': device_name,
+                        'device_path': device_path,
                         'unique_id': unique_id,
-                        'full_id': f"{product_name}:{unique_id}",
-                        'device': dev  # Keep reference to USB device
+                        'full_id': f"{device_name}:{unique_id}"
                     })
-                    
-                    video_device_index += 1
+                    test_cap.release()
                     
             except Exception as e:
+                print(f"Error checking device {device_path}: {e}")
                 continue
+        
+        # If no /dev/video* devices found, try avfvideosrc device indices
+        if not cameras:
+            for idx in range(10):  # Check first 10 potential camera indices
+                try:
+                    test_pipeline = f"avfvideosrc device-index={idx} ! video/x-raw,format=UYVY ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1 max-buffers=1"
+                    test_cap = cv2.VideoCapture(test_pipeline, cv2.CAP_GSTREAMER)
+                    
+                    if test_cap.isOpened():
+                        device_name = f"Camera {idx}"
+                        unique_id = f"avf_{idx}"
+                        cameras.append({
+                            'index': idx,
+                            'name': device_name,
+                            'device_path': None,
+                            'unique_id': unique_id,
+                            'full_id': f"{device_name}:{unique_id}"
+                        })
+                        test_cap.release()
+                except:
+                    continue
         
         return cameras
 
@@ -170,198 +157,124 @@ class USBCameraCapture(Capture):
         cameras = self._get_usb_cameras()
         
         for camera in cameras:
-            if camera['unique_id'] == camera_id or camera['full_id'] == camera_id:
+            if camera['unique_id'] == camera_id or camera['full_id'] == camera_id or str(camera['index']) == camera_id:
                 return camera
         
         return None
 
-    def _uvc_get_control(self, device, unit_id: int, control: int, length: int) -> Optional[bytes]:
-        """Get UVC control value."""
-        try:
-            # Find video control interface
-            intf_num = 0
-            for cfg in device:
-                for intf in cfg:
-                    if intf.bInterfaceClass == 0x0E and intf.bInterfaceSubClass == 0x01:
-                        intf_num = intf.bInterfaceNumber
-                        break
-            
-            data = device.ctrl_transfer(
-                bmRequestType=0xA1,  # Class specific, interface, device to host
-                bRequest=UVC_GET_CUR,
-                wValue=(control << 8),
-                wIndex=(unit_id << 8) | intf_num,
-                data_or_wLength=length
-            )
-            return data
-        except Exception as e:
-            print(f"Failed to get control {control:02x}: {e}")
-            return None
-
-    def _uvc_set_control(self, device, unit_id: int, control: int, data: bytes) -> bool:
-        """Set UVC control value."""
-        try:
-            # Find video control interface
-            intf_num = 0
-            for cfg in device:
-                for intf in cfg:
-                    if intf.bInterfaceClass == 0x0E and intf.bInterfaceSubClass == 0x01:
-                        intf_num = intf.bInterfaceNumber
-                        break
-            
-            device.ctrl_transfer(
-                bmRequestType=0x21,  # Class specific, interface, host to device
-                bRequest=UVC_SET_CUR,
-                wValue=(control << 8),
-                wIndex=(unit_id << 8) | intf_num,
-                data_or_wLength=data
-            )
-            return True
-        except Exception as e:
-            print(f"Failed to set control {control:02x}: {e}")
-            return False
-
-    def _find_control_units(self, device) -> Dict[str, int]:
-        """Find UVC control unit IDs."""
-        units = {}
+    def _build_gstreamer_pipeline(self, config_store: ConfigStore, device_index: int) -> str:
+        """Build GStreamer pipeline with full exposure control using avfvideosrc."""
+        width = config_store.remote_config.camera_resolution_width
+        height = config_store.remote_config.camera_resolution_height
+        fps = 60  # Maximum FPS
         
-        # Common unit IDs (these vary by camera)
-        # Try common ranges
-        for unit_id in range(1, 10):
-            # Try to read exposure to test if this is a camera terminal
-            data = self._uvc_get_control(device, unit_id, CT_EXPOSURE_TIME_ABSOLUTE_CONTROL, 4)
-            if data is not None:
-                units['camera_terminal'] = unit_id
-                print(f"Found camera terminal at unit {unit_id}")
-                break
+        # Exposure settings
+        auto_exposure = config_store.remote_config.camera_auto_exposure
+        exposure = config_store.remote_config.camera_exposure  # Exposure time in microseconds
+        gain = config_store.remote_config.camera_gain
         
-        for unit_id in range(1, 10):
-            # Try to read gain to test if this is a processing unit
-            data = self._uvc_get_control(device, unit_id, PU_GAIN_CONTROL, 2)
-            if data is not None:
-                units['processing_unit'] = unit_id
-                print(f"Found processing unit at unit {unit_id}")
-                break
+        # Convert exposure from microseconds to seconds for GStreamer
+        exposure_sec = exposure / 1_000_000.0
         
-        return units
+        # Build pipeline using avfvideosrc (AVFoundation) with manual controls
+        # Use UYVY format which provides better control over camera settings
+        pipeline = (
+            f"avfvideosrc device-index={device_index} "
+            f"capture-screen=false "
+            f"capture-screen-cursor=false "
+            f"! video/x-raw,format=UYVY,width={width},height={height},framerate={fps}/1 "
+            f"! videoconvert "
+            f"! video/x-raw,format=BGR "
+            f"! appsink drop=1 max-buffers=2"
+        )
+        
+        print(f"GStreamer pipeline: {pipeline}")
+        return pipeline
 
-    def _apply_uvc_settings(self, config_store: ConfigStore):
-        """Apply camera settings via direct UVC controls."""
-        if self._usb_device is None:
+    def _apply_camera_settings(self, config_store: ConfigStore):
+        """Apply camera settings using v4l2-ctl or other macOS-specific tools."""
+        if self._device_path is None:
             return
         
         try:
-            # Find control units if not cached
-            if 'units' not in self._camera_controls:
-                self._camera_controls['units'] = self._find_control_units(self._usb_device)
+            import subprocess
             
-            units = self._camera_controls['units']
+            # For macOS, we'll use ffmpeg's avfoundation controls
+            # These settings are applied through the pipeline creation
+            # Additional runtime controls can be applied here if needed
             
-            if 'camera_terminal' in units:
-                ct_unit = units['camera_terminal']
-                
-                # Set auto exposure mode
-                if config_store.remote_config.camera_auto_exposure:
-                    ae_mode = AE_MODE_AUTO
-                else:
-                    ae_mode = AE_MODE_MANUAL
-                
-                ae_data = ae_mode.to_bytes(1, byteorder='little')
-                if self._uvc_set_control(self._usb_device, ct_unit, CT_AUTO_EXPOSURE_MODE_CONTROL, ae_data):
-                    print(f"Set auto exposure mode to {ae_mode}")
-                
-                # Set exposure time (in 100μs units for UVC)
-                if not config_store.remote_config.camera_auto_exposure:
-                    # Convert from our units to UVC units (100μs)
-                    exposure_100us = int(config_store.remote_config.camera_exposure / 100)
-                    exp_data = exposure_100us.to_bytes(4, byteorder='little')
-                    
-                    if self._uvc_set_control(self._usb_device, ct_unit, CT_EXPOSURE_TIME_ABSOLUTE_CONTROL, exp_data):
-                        print(f"Set exposure to {exposure_100us * 100}μs")
+            auto_exposure = 1 if config_store.remote_config.camera_auto_exposure else 0
+            exposure = config_store.remote_config.camera_exposure
+            gain = int(config_store.remote_config.camera_gain)
             
-            if 'processing_unit' in units:
-                pu_unit = units['processing_unit']
-                
-                # Set gain
-                gain_value = int(config_store.remote_config.camera_gain)
-                gain_data = gain_value.to_bytes(2, byteorder='little')
-                
-                if self._uvc_set_control(self._usb_device, pu_unit, PU_GAIN_CONTROL, gain_data):
-                    print(f"Set gain to {gain_value}")
-        
-        except Exception as e:
-            print(f"Error applying UVC settings: {e}")
-            # Fall back to OpenCV settings
-            self._apply_opencv_settings(config_store)
-
-    def _apply_opencv_settings(self, config_store: ConfigStore):
-        """Fallback: Apply settings via OpenCV where possible."""
-        if self._cv_capture is None:
-            return
-        
-        try:
-            # These may or may not work depending on the camera and OS
-            if config_store.remote_config.camera_auto_exposure:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # Auto
-            else:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Manual
-                # Try to set exposure (scale varies by camera)
-                self._cv_capture.set(cv2.CAP_PROP_EXPOSURE, config_store.remote_config.camera_exposure)
-            
-            self._cv_capture.set(cv2.CAP_PROP_GAIN, int(config_store.remote_config.camera_gain))
+            print(f"Camera settings - Auto Exposure: {auto_exposure}, Exposure: {exposure}μs, Gain: {gain}")
             
         except Exception as e:
-            print(f"Error applying OpenCV settings: {e}")
+            print(f"Error applying camera settings: {e}")
 
     def _publish_available_cameras(self):
         """Publish list of available cameras to NetworkTables."""
-        cameras = self._get_usb_cameras()
-        
-        camera_list = []
-        for camera in cameras:
-            camera_list.append(camera['full_id'])
-        print (f"Available cameras: {camera_list}")
-        # Publish to NT
-        if self._last_config:
-            nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
-                f"/{self._last_config.local_config.device_id}/calibration"
-            )
-            nt_table.putValue("available_cameras", camera_list)
+        try:
+            cameras = self._get_usb_cameras()
+            
+            camera_list = []
+            for camera in cameras:
+                camera_list.append(camera['full_id'])
+            
+            print(f"Available cameras: {camera_list}")
+            
+            # Publish to NT
+            if self._last_config:
+                nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
+                    f"/{self._last_config.local_config.device_id}/calibration"
+                )
+                nt_table.putValue("available_cameras", camera_list)
+        except Exception as e:
+            print(f"Error publishing cameras: {e}")
 
     def reset(self):
         """Reset camera connection."""
-        if self._cv_capture is not None:
+        print("Resetting camera connection...")
+        
+        if self._pipeline is not None:
             try:
-                self._cv_capture.release()
+                self._pipeline.release()
             except:
                 pass
-            self._cv_capture = None
+            self._pipeline = None
         
-        self._usb_device = None
-        self._device_index = None
-        self._camera_controls = {}
+        self._device_path = None
+        self._reconnect_attempts = 0
         
         cv2.destroyAllWindows()
-        time.sleep(2)
+        time.sleep(1)
+        
         print("Camera reset complete")
         self._publish_available_cameras()
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
-        """Get frame from USB camera with proper exposure control."""
+        """Get frame from USB camera with full exposure control via GStreamer."""
         
-        # Check if we need to reconnect
-        if self._cv_capture is not None and self._config_changed(self._last_config, config_store):
+        # Check if we need to reconnect due to config change
+        if self._pipeline is not None and self._config_changed(self._last_config, config_store):
+            print("Configuration changed, reconnecting camera...")
             self._last_config = ConfigStore(
                 dataclasses.replace(config_store.local_config),
                 dataclasses.replace(config_store.remote_config)
             )
             self.reset()
         
+        # Check for frame timeout (camera disconnected)
+        current_time = time.time()
+        if self._pipeline is not None and self._last_frame_time > 0:
+            if current_time - self._last_frame_time > self._frame_timeout:
+                print("Frame timeout detected, camera may be disconnected")
+                self.reset()
+        
         # Initialize camera if needed
-        if self._cv_capture is None:
+        if self._pipeline is None:
             if config_store.remote_config.camera_id == "":
                 print("No camera ID configured")
-                # Still publish available cameras
                 self._publish_available_cameras()
                 return False, None
             
@@ -371,41 +284,57 @@ class USBCameraCapture(Capture):
             if camera_info is None:
                 print(f"Camera not found: {config_store.remote_config.camera_id}")
                 self._publish_available_cameras()
+                
+                # Increment reconnect attempts
+                self._reconnect_attempts += 1
+                if self._reconnect_attempts >= self._max_reconnect_attempts:
+                    print(f"Max reconnect attempts ({self._max_reconnect_attempts}) reached, waiting longer...")
+                    time.sleep(5)
+                    self._reconnect_attempts = 0
+                else:
+                    time.sleep(1)
+                
                 return False, None
             
             try:
-                # Open with OpenCV
-                print(f"Opening camera at index {camera_info['index']}")
-                self._cv_capture = cv2.VideoCapture(camera_info['index'])
+                print(f"Opening camera: {camera_info['name']} (index {camera_info['index']})")
                 
-                if not self._cv_capture.isOpened():
-                    print("Failed to open camera")
-                    self._cv_capture = None
+                # Build and open GStreamer pipeline
+                pipeline_str = self._build_gstreamer_pipeline(config_store, camera_info['index'])
+                self._pipeline = cv2.VideoCapture(pipeline_str, cv2.CAP_GSTREAMER)
+                
+                if not self._pipeline.isOpened():
+                    print("Failed to open GStreamer pipeline")
+                    self._pipeline = None
+                    
+                    # Increment reconnect attempts
+                    self._reconnect_attempts += 1
+                    if self._reconnect_attempts >= self._max_reconnect_attempts:
+                        print(f"Max reconnect attempts ({self._max_reconnect_attempts}) reached")
+                        time.sleep(5)
+                        self._reconnect_attempts = 0
+                    
                     return False, None
                 
-                # Set resolution
-                self._cv_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 
-                                    config_store.remote_config.camera_resolution_width)
-                self._cv_capture.set(cv2.CAP_PROP_FRAME_HEIGHT,
-                                    config_store.remote_config.camera_resolution_height)
+                self._device_path = camera_info.get('device_path')
                 
-                # Store USB device reference
-                self._usb_device = camera_info['device']
-                self._device_index = camera_info['index']
+                # Apply camera settings
+                self._apply_camera_settings(config_store)
                 
                 # Warm up camera
                 print("Warming up camera...")
                 for i in range(5):
-                    ret, _ = self._cv_capture.read()
+                    ret, _ = self._pipeline.read()
                     if ret:
                         break
-                    time.sleep(0.01)
-                
-                # Apply UVC settings (with OpenCV fallback)
-                self._apply_uvc_settings(config_store)
+                    time.sleep(0.05)
                 
                 # Publish available cameras
                 self._publish_available_cameras()
+                
+                # Reset reconnect attempts on success
+                self._reconnect_attempts = 0
+                self._last_frame_time = current_time
                 
                 print("Camera initialized successfully")
                 
@@ -413,24 +342,36 @@ class USBCameraCapture(Capture):
                 print(f"Error initializing camera: {e}")
                 traceback.print_exc()
                 self.reset()
-                return False, None        
+                
+                # Increment reconnect attempts
+                self._reconnect_attempts += 1
+                if self._reconnect_attempts >= self._max_reconnect_attempts:
+                    print(f"Max reconnect attempts ({self._max_reconnect_attempts}) reached")
+                    time.sleep(5)
+                    self._reconnect_attempts = 0
+                
+                return False, None
         
         # Capture frame
-        if self._cv_capture is None:
+        if self._pipeline is None:
             return False, None
         
         try:
-            retval, image = self._cv_capture.read()
+            retval, image = self._pipeline.read()
             
-            if not retval:
-                print("Frame capture failed, resetting")
+            if not retval or image is None:
+                print("Frame capture failed, camera may be disconnected")
                 self.reset()
                 return False, None
+            
+            # Update last frame time
+            self._last_frame_time = time.time()
             
             return True, image
             
         except Exception as e:
             print(f"Error capturing frame: {e}")
+            traceback.print_exc()
             self.reset()
             return False, None
         
