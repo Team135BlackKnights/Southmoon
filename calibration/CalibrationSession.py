@@ -19,7 +19,7 @@ class CalibrationSession:
     _all_charuco_ids: List[numpy.ndarray] = []
     _imsize = None
 
-    NEW_CALIBRATION_FILENAME = "/Users/pennrobotics/Documents/GitHub/Southmoon/new_calibration.json"
+    NEW_CALIBRATION_FILENAME = "/Users/team135/Documents/GitHub/Southmoon/new_calibration.json"
 
     def __init__(self) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_1000)
@@ -29,7 +29,8 @@ class CalibrationSession:
     def process_frame(self, image: cv2.Mat, save: bool) -> None:
         # Get image size
         if self._imsize == None:
-            self._imsize = (image.shape[0], image.shape[1])
+            self._imsize = (image.shape[1], image.shape[0])
+
 
         # Detect tags
         (corners, ids, rejected) = cv2.aruco.detectMarkers(image, self._aruco_dict, parameters=self._aruco_params)
@@ -57,9 +58,20 @@ class CalibrationSession:
         if os.path.exists(self.NEW_CALIBRATION_FILENAME):
             os.remove(self.NEW_CALIBRATION_FILENAME)
 
-        (retval, camera_matrix, distortion_coefficients, rvecs, tvecs) = cv2.aruco.calibrateCameraCharuco(
-            self._all_charuco_corners, self._all_charuco_ids, self._charuco_board, self._imsize, None, None
+        flags = (
+            cv2.CALIB_RATIONAL_MODEL 
         )
+
+        (retval, camera_matrix, distortion_coefficients, rvecs, tvecs) = cv2.aruco.calibrateCameraCharuco(
+            self._all_charuco_corners,
+            self._all_charuco_ids,
+            self._charuco_board,
+            self._imsize,
+            None,
+            None,
+            flags=flags
+        )
+
 
         if retval:
             calibration_store = cv2.FileStorage(self.NEW_CALIBRATION_FILENAME, cv2.FILE_STORAGE_WRITE)
