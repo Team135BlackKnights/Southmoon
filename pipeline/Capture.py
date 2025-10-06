@@ -94,6 +94,10 @@ class USBCameraCapture(Capture):
         self._device_index = None
         self._last_config: ConfigStore = None
         self._camera_controls = {}
+        self._ffmpeg_proc = None
+        self._frame_bytes = None
+        self._width = None
+        self._height = None
 
     def _get_usb_cameras(self) -> List[Dict]:
         """Get list of USB video devices with unique identifiers."""
@@ -152,13 +156,13 @@ class USBCameraCapture(Capture):
                     else:
                         # Fall back to bus/address if no serial
                         unique_id = f"usb_{vendor_id:04x}_{product_id:04x}_{dev.bus:03d}_{dev.address:03d}"
-                    
-                    cameras.append({
-                        'index': video_device_index,
-                        'name': product_name,
-                        'vendor_id': vendor_id,
-                        'product_id': product_id,
-                        'serial': serial,
+                    if vendor_id == 0x05c8:
+                        cameras.append({
+                            'index': video_device_index,
+                            'name': product_name,
+                            'vendor_id': vendor_id,
+                            'product_id': product_id,
+                            'serial': serial,
                         'bus': dev.bus,
                         'address': dev.address,
                         'unique_id': unique_id,
@@ -166,7 +170,7 @@ class USBCameraCapture(Capture):
                         'device': dev  # Keep reference to USB device
                     })
                     
-                    video_device_index += 1
+                        video_device_index += 1
                     
             except Exception as e:
                 continue
@@ -426,9 +430,24 @@ class USBCameraCapture(Capture):
                 pass
             self._cv_capture = None
         
+        # Clean up FFmpeg process
+        if self._ffmpeg_proc is not None:
+            try:
+                self._ffmpeg_proc.terminate()
+                self._ffmpeg_proc.wait(timeout=2)
+            except:
+                try:
+                    self._ffmpeg_proc.kill()
+                except:
+                    pass
+            self._ffmpeg_proc = None
+        
         self._usb_device = None
         self._device_index = None
         self._camera_controls = {}
+        self._frame_bytes = None
+        self._width = None
+        self._height = None
         
         cv2.destroyAllWindows()
         time.sleep(.05)
@@ -436,85 +455,90 @@ class USBCameraCapture(Capture):
         self._publish_available_cameras()
 
     def get_frame(self, config_store: ConfigStore) -> Tuple[bool, cv2.Mat]:
-        """Get raw YUYV frame via FFmpeg while still applying UVC hardware settings."""
-    
-        # Check for config change
+        """Get frame from USB camera with proper exposure control."""
+        
+        # Check if we need to reconnect
         if self._cv_capture is not None and self._config_changed(self._last_config, config_store):
             self._last_config = ConfigStore(
                 dataclasses.replace(config_store.local_config),
                 dataclasses.replace(config_store.remote_config)
             )
             self.reset()
-    
-        # Initialize capture pipeline
+        
+        # Initialize camera if needed
         if self._cv_capture is None:
             if config_store.remote_config.camera_id == "":
                 print("No camera ID configured")
+                # Still publish available cameras
                 self._publish_available_cameras()
                 return False, None
-    
+            
+            # Find the camera
             camera_info = self._find_camera_by_id(config_store.remote_config.camera_id)
+            
             if camera_info is None:
                 print(f"Camera not found: {config_store.remote_config.camera_id}")
                 self._publish_available_cameras()
                 return False, None
-    
+            
             try:
-                width = int(getattr(config_store.remote_config, "camera_resolution_width", 1280))
-                height = int(getattr(config_store.remote_config, "camera_resolution_height", 720))
-                framerate = int(getattr(config_store.remote_config, "camera_fps", 30))
-                index = str(camera_info["index"])
-    
-                print(f"Opening camera {index} using FFmpeg raw YUYV")
-    
-                # Initialize FFmpeg pipeline for raw capture
-                self._ffmpeg_proc = subprocess.Popen([
-                    "ffmpeg",
-                    "-hide_banner", "-loglevel", "error",
-                    "-f", "avfoundation",
-                    "-framerate", str(framerate),
-                    "-video_size", f"{width}x{height}",
-                    "-pix_fmt", "uyvy422",   # raw YUYV
-                    "-i", index,
-                    "-f", "rawvideo",
-                    "-pix_fmt", "bgr24",
-                    "pipe:1"
-                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
-                self._frame_bytes = width * height * 3
-                self._width = width
-                self._height = height
-                self._device_index = index
-                self._usb_device = camera_info["device"]
-    
-                # Apply UVC hardware settings (hue, wb, gain, exposure, etc.)
+                # Open with OpenCV
+                print(f"Opening camera at index {camera_info['index']}")
+                self._cv_capture = cv2.VideoCapture(camera_info['index'])
+                
+                if not self._cv_capture.isOpened():
+                    print("Failed to open camera")
+                    self._cv_capture = None
+                    return False, None
+                
+                # Set resolution
+                self._cv_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 
+                                    config_store.remote_config.camera_resolution_width)
+                self._cv_capture.set(cv2.CAP_PROP_FRAME_HEIGHT,
+                                    config_store.remote_config.camera_resolution_height)
+                
+                # Store USB device reference
+                self._usb_device = camera_info['device']
+                self._device_index = camera_info['index']
+                
+                # Warm up camera
+                print("Warming up camera...")
+                for i in range(5):
+                    ret, _ = self._cv_capture.read()
+                    if ret:
+                        break
+                    time.sleep(0.01)
+                
+                # Apply UVC settings (with OpenCV fallback)
                 self._apply_uvc_settings(config_store)
-    
+                
                 # Publish available cameras
                 self._publish_available_cameras()
-                print("Camera initialized successfully with FFmpeg raw stream")
-    
+                
+                print("Camera initialized successfully")
+                
             except Exception as e:
                 print(f"Error initializing camera: {e}")
                 traceback.print_exc()
                 self.reset()
-                return False, None
-    
-        # Read a frame from FFmpeg
+                return False, None        
+        
+        # Capture frame
+        if self._cv_capture is None:
+            return False, None
+        
         try:
-            raw_frame = self._ffmpeg_proc.stdout.read(self._frame_bytes)
-            if len(raw_frame) != self._frame_bytes:
-                print("Incomplete frame read, resetting FFmpeg pipeline")
+            retval, image = self._cv_capture.read()
+            
+            if not retval:
+                print("Frame capture failed, resetting")
                 self.reset()
                 return False, None
-    
-            # Convert to OpenCV Mat
-            image = np.frombuffer(raw_frame, np.uint8).reshape((self._height, self._width, 3))
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             return True, image
-    
+            
         except Exception as e:
             print(f"Error capturing frame: {e}")
-            traceback.print_exc()
             self.reset()
             return False, None
         
