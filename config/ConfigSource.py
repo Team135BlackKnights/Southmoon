@@ -79,7 +79,11 @@ class NTConfigSource(ConfigSource):
     _camera_resolution_width_sub: ntcore.IntegerSubscriber
     _camera_resolution_height_sub: ntcore.IntegerSubscriber
     _camera_auto_exposure_sub: ntcore.IntegerSubscriber
-    _camera_exposure_sub: ntcore.IntegerSubscriber
+    _camera_auto_white_balance_sub: ntcore.IntegerSubscriber
+    _camera_exposure_sub: ntcore.DoubleSubscriber
+    _camera_saturation_sub: ntcore.IntegerSubscriber
+    _camera_hue_sub: ntcore.IntegerSubscriber
+    _camera_white_balance_sub: ntcore.IntegerSubscriber
     _camera_gain_sub: ntcore.DoubleSubscriber
     _fiducial_size_m_sub: ntcore.DoubleSubscriber
     _tag_layout_sub: ntcore.StringSubscriber
@@ -102,9 +106,17 @@ class NTConfigSource(ConfigSource):
             self._camera_auto_exposure_sub = nt_table.getIntegerTopic("camera_auto_exposure").subscribe(
                 RemoteConfig.camera_auto_exposure
             )
-            self._camera_exposure_sub = nt_table.getIntegerTopic("camera_exposure").subscribe(
+            self._camera_auto_white_balance_sub = nt_table.getIntegerTopic("camera_auto_white_balance").subscribe(
+                RemoteConfig.camera_auto_white_balance
+            )
+            self._camera_exposure_sub = nt_table.getDoubleTopic("camera_exposure").subscribe(
                 RemoteConfig.camera_exposure
             )
+            self._camera_saturation_sub = nt_table.getIntegerTopic("camera_saturation").subscribe(
+                RemoteConfig.camera_saturation
+            )
+            self._camera_hue_sub = nt_table.getIntegerTopic("camera_hue").subscribe(RemoteConfig.camera_hue)
+            self._camera_white_balance_sub = nt_table.getIntegerTopic("camera_white_balance").subscribe(RemoteConfig.camera_hue)
             self._camera_gain_sub = nt_table.getDoubleTopic("camera_gain").subscribe(RemoteConfig.camera_gain)
             self._fiducial_size_m_sub = nt_table.getDoubleTopic("fiducial_size_m").subscribe(
                 RemoteConfig.fiducial_size_m
@@ -119,7 +131,11 @@ class NTConfigSource(ConfigSource):
         config_store.remote_config.camera_resolution_width = self._camera_resolution_width_sub.get()
         config_store.remote_config.camera_resolution_height = self._camera_resolution_height_sub.get()
         config_store.remote_config.camera_auto_exposure = self._camera_auto_exposure_sub.get()
+        config_store.remote_config.camera_auto_white_balance = self._camera_auto_white_balance_sub.get()
         config_store.remote_config.camera_exposure = self._camera_exposure_sub.get()
+        config_store.remote_config.camera_saturation = self._camera_saturation_sub.get()
+        config_store.remote_config.camera_hue = self._camera_hue_sub.get()
+        config_store.remote_config.camera_white_balance = self._camera_white_balance_sub.get()
         config_store.remote_config.camera_gain = self._camera_gain_sub.get()
         config_store.remote_config.fiducial_size_m = self._fiducial_size_m_sub.get()
         try:

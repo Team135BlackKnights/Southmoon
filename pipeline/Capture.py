@@ -6,10 +6,14 @@
 # the root directory of this project.
 
 import dataclasses
+import os
 import sys
 import time
 import traceback
 from typing import Tuple, Optional, List, Dict, Union
+import math
+import subprocess
+import shutil
 import usb.core
 import usb.util
 import AVFoundation
@@ -74,6 +78,10 @@ class Capture:
             or remote_a.camera_auto_exposure != remote_b.camera_auto_exposure
             or remote_a.camera_exposure != remote_b.camera_exposure
             or remote_a.camera_gain != remote_b.camera_gain
+            or remote_a.camera_saturation != remote_b.camera_saturation
+            or remote_a.camera_hue != remote_b.camera_hue
+            or remote_a.camera_white_balance != remote_b.camera_white_balance
+            or remote_a.camera_auto_white_balance != remote_b.camera_auto_white_balance
         )
 
 
@@ -250,6 +258,13 @@ class USBCameraCapture(Capture):
         if self._usb_device is None:
             return
         
+        # On macOS, AVFoundation owns the device and TCC blocks direct UVC controls for most apps.
+        # Rely on OpenCV/AVFoundation property controls instead to avoid EACCES and no-op behavior.
+        if sys.platform == "darwin":
+            print("macOS detected: skipping direct UVC controls and using AVFoundation/OpenCV props")
+            self._apply_opencv_settings(config_store)
+            return
+        
         try:
             # Find control units if not cached
             if 'units' not in self._camera_controls:
@@ -300,18 +315,92 @@ class USBCameraCapture(Capture):
             return
         
         try:
-            # These may or may not work depending on the camera and OS
-            if config_store.remote_config.camera_auto_exposure:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # Auto
-            else:
-                self._cv_capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Manual
-                # Try to set exposure (scale varies by camera)
-                self._cv_capture.set(cv2.CAP_PROP_EXPOSURE, config_store.remote_config.camera_exposure)
-            
-            self._cv_capture.set(cv2.CAP_PROP_GAIN, int(config_store.remote_config.camera_gain))
+            self._apply_ns_iokit_settings(config_store)
             
         except Exception as e:
             print(f"Error applying OpenCV settings: {e}")
+
+    def _apply_ns_iokit_settings(self, config_store: ConfigStore):
+        """macOS: Use bundled ns-iokit-ctl helper to force exposure/gain via IOKit.
+
+        Requires building ns-iokit-ctl first. Enable with env USE_NS_IOKIT_CTL=1.
+        """
+        if self._usb_device is None:
+            print("ns-iokit-ctl: no USB device available")
+            return
+
+        try:
+            force_rebuild = os.getenv("NS_IOKIT_CTL_REBUILD", "0") == "1"
+            vid = int(self._usb_device.idVendor)
+            pid = int(self._usb_device.idProduct)
+            # Location ID: we don't have it via libusb; pass 0 to select first match
+            location_hex = "0"
+
+            disable_auto = 0 if config_store.remote_config.camera_auto_exposure else 1
+            exposure = float(config_store.remote_config.camera_exposure)
+            gain = int(config_store.remote_config.camera_gain)
+            saturation = int(config_store.remote_config.camera_saturation)
+            hue = int(config_store.remote_config.camera_hue)
+            disable_auto_white_balance = int(config_store.remote_config.camera_auto_white_balance)
+            white_balance = int(config_store.remote_config.camera_white_balance)
+            # Find tool binary
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            tool_dir = os.path.join(repo_root, "ns-iokit-ctl")
+            build_dir = os.path.join(tool_dir, "build")
+            tool_bin = os.path.join(build_dir, "ns_iokit_ctl")
+
+            if force_rebuild and os.path.exists(build_dir):
+                print("NS_IOKIT_CTL_REBUILD=1 set: removing existing build directory to force rebuild...")
+                try:
+                    shutil.rmtree(build_dir)
+                except Exception as de:
+                    print(f"Failed to remove build directory: {de}")
+
+            if force_rebuild or not os.path.exists(tool_bin):
+                print("ns-iokit-ctl build required; building via CMake...")
+                try:
+                    os.makedirs(build_dir, exist_ok=True)
+                    # Configure
+                    subprocess.run(["cmake", "-S", tool_dir, "-B", build_dir], check=True)
+                    # Build
+                    subprocess.run(["cmake", "--build", build_dir, "--config", "Release"], check=True)
+                    #remove the flag
+                    if force_rebuild:
+                        os.environ["NS_IOKIT_CTL_REBUILD"] = "0"
+                except Exception as be:
+                    print(f"Failed to build ns-iokit-ctl: {be}")
+                    return
+
+            if not os.path.exists(tool_bin):
+                print("ns-iokit-ctl binary not found after build")
+                return
+
+            args = [
+                tool_bin,
+                f"{vid:04x}",
+                f"{pid:04x}",
+                location_hex,
+                str(disable_auto),
+                str(exposure),
+                str(gain),
+                str(saturation),
+                str(hue),
+                str(disable_auto_white_balance),
+                str(white_balance)
+            ]
+            print("ns-iokit-ctl: ", " ".join(args))
+            try:
+                result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+                if result.stdout:
+                    print(result.stdout.strip())
+                if result.stderr:
+                    print(result.stderr.strip())
+                if result.returncode != 0:
+                    print(f"ns-iokit-ctl failed with code {result.returncode}")
+            except Exception as re:
+                print(f"Error running ns-iokit-ctl: {re}")
+        except Exception as e:
+            print(f"ns-iokit-ctl error: {e}")
 
     def _publish_available_cameras(self):
         """Publish list of available cameras to NetworkTables."""
@@ -342,7 +431,7 @@ class USBCameraCapture(Capture):
         self._camera_controls = {}
         
         cv2.destroyAllWindows()
-        time.sleep(2)
+        time.sleep(.05)
         print("Camera reset complete")
         self._publish_available_cameras()
 
