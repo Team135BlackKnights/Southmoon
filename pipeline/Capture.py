@@ -11,12 +11,10 @@ import sys
 import time
 import traceback
 from typing import Tuple, Optional, List, Dict, Union
-import math
 import subprocess
 import shutil
 import usb.core
 import usb.util
-import AVFoundation
 import cv2
 import numpy
 import ntcore
@@ -105,7 +103,6 @@ class USBCameraCapture(Capture):
         
         # Find all USB devices that might be cameras
         devices = usb.core.find(find_all=True)
-        
         video_device_index = 0
         for dev in devices:
             try:
@@ -171,6 +168,22 @@ class USBCameraCapture(Capture):
                     })
                     
                         video_device_index += 1
+                    else:
+                        #TODO: remove this else after testing
+                        '''cameras.append({
+                            'index': video_device_index,
+                            'name': product_name,
+                            'vendor_id': vendor_id,
+                            'product_id': product_id,
+                            'serial': serial,
+                            'bus': dev.bus,
+                            'address': dev.address,
+                            'unique_id': unique_id,
+                            'full_id': f"{product_name}:{unique_id}",
+                            'device': dev  # Keep reference to USB device
+                        })
+                    
+                        video_device_index += 1'''
                     
             except Exception as e:
                 continue
