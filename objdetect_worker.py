@@ -24,12 +24,24 @@ def objdetect_worker(
     object_detector = CoreMLObjectDetector()
     stream_server = MjpegServer()
     stream_server.start(server_port)
+    last_sent_ts = 0.0
 
     while True:
         sample = q_in.get()
         timestamp: float = sample[0]
         image: cv2.Mat = sample[1]
         config: ConfigStore = sample[2]
+
+        # Optional input throttle to avoid swamping CoreML, respects max_fps if set
+        try:
+            max_fps = config.local_config.obj_detect_max_fps
+        except Exception:
+            max_fps = -1
+        if max_fps and max_fps > 0:
+            min_dt = 1.0 / float(max_fps)
+            if (timestamp - last_sent_ts) < min_dt:
+                continue
+            last_sent_ts = timestamp
 
         observations = object_detector.detect(image, config)
 

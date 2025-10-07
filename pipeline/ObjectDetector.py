@@ -14,6 +14,7 @@ import numpy as np
 from config.config import ConfigStore
 from PIL import Image
 from vision_types import ObjDetectObservation
+from coremltools import ComputeUnit  # type: ignore
 
 
 class ObjectDetector:
@@ -34,7 +35,7 @@ class CoreMLObjectDetector(ObjectDetector):
         # Load CoreML model
         if self._model == None:
             print("Loading object detection model")
-            self._model = coremltools.models.MLModel(config.local_config.obj_detect_model)
+            self._model = coremltools.models.MLModel(config.local_config.obj_detect_model, compute_units=ComputeUnit.ALL)
             print("Finished loading object detection model")
 
         # Create scaled frame for model

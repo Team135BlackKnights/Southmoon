@@ -13,6 +13,8 @@ import threading
 import time
 from typing import List, Tuple, Union
 
+import cv2
+import multiprocessing as mp
 import ntcore
 from apriltag_worker import apriltag_worker
 from calibration.CalibrationCommandSource import CalibrationCommandSource, NTCalibrationCommandSource
@@ -48,6 +50,55 @@ class NTLogger:
             self.nt_table.putString(self.log_key, self._buffer)
             self._buffer = ""
 
+
+def camera_capture_worker(
+    capture, 
+    config_store: ConfigStore, 
+    remote_config_source: ConfigSource,
+    q_out: queue.Queue[Tuple[float, bool, cv2.Mat]]
+):
+    """
+    Dedicated camera capture thread that continuously reads frames from the camera
+    and puts them in a queue. This prevents blocking the main processing loop.
+    """
+    consecutive_failures = 0
+    last_config_update = 0
+    config_update_interval = 0.1  # Update config every 100ms instead of every frame
+    frames_dropped = 0
+    
+    while True:
+        # Update config from NetworkTables periodically (not every frame to avoid overhead)
+        current_time = time.time()
+        if current_time - last_config_update > config_update_interval:
+            remote_config_source.update(config_store)
+            last_config_update = current_time
+        
+        timestamp = time.time()
+        success, image = capture.get_frame(config_store)
+        
+        if not success:
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                print("Camera capture: Too many consecutive failures, restarting...")
+                # Signal the main thread to restart
+                q_out.put((timestamp, False, None))
+                return
+            time.sleep(0.2)
+            continue
+        
+        consecutive_failures = 0
+        
+        # Put frame in queue (non-blocking). Just skip if queue is full - don't try to drop old frames
+        # This is faster and avoids contention with the main loop
+        try:
+            q_out.put((timestamp, True, image), block=False)
+        except queue.Full:
+            frames_dropped += 1
+            if frames_dropped % 100 == 0:
+                print(f"Camera: Dropped {frames_dropped} frames (main loop too slow)")
+            pass
+
+
 # Save the original print function
 
 
@@ -77,6 +128,15 @@ if __name__ == "__main__":
     calibration_session = CalibrationSession()
     calibration_session_server: Union[StreamServer, None] = None
 
+    # Camera capture queue and thread - LARGE queue to buffer frames while main loop is busy
+    camera_queue = queue.Queue(maxsize=30)  # Buffer up to 30 frames (0.5 seconds at 60fps)
+    camera_thread = threading.Thread(
+        target=camera_capture_worker,
+        args=(capture, config, remote_config_source, camera_queue),
+        daemon=True,
+    )
+    camera_thread.start()
+
     if config.local_config.apriltags_enable:
         apriltag_worker_in = queue.Queue(maxsize=1)
         apriltag_worker_out = queue.Queue(maxsize=1)
@@ -88,14 +148,15 @@ if __name__ == "__main__":
         apriltag_worker.start()
 
     if config.local_config.objdetect_enable:
-        objdetect_worker_in = queue.Queue(maxsize=1)
-        objdetect_worker_out = queue.Queue(maxsize=1)
-        objdetect_worker = threading.Thread(
+        # Run object detection in a separate process to avoid GIL contention
+        objdetect_worker_in = mp.Queue(maxsize=1)
+        objdetect_worker_out = mp.Queue(maxsize=1)
+        objdetect_process = mp.Process(
             target=objdetect_worker,
             args=(objdetect_worker_in, objdetect_worker_out, config.local_config.objdetect_stream_port),
             daemon=True,
         )
-        objdetect_worker.start()
+        objdetect_process.start()
 
     ntcore.NetworkTableInstance.getDefault().setServer(config.local_config.server_ip)
     #convert the ID to string
@@ -111,11 +172,33 @@ if __name__ == "__main__":
     last_image_observations: List[FiducialImageObservation] = []
     last_objdetect_observations: List[ObjDetectObservation] = []
     video_frame_cache: List[cv2.Mat] = []
-    consecutive_failures = 0
+    
+    # Debug timing
+    last_debug_print = time.time()
+    camera_frame_count = 0
+    last_main_config_update = time.time()
+    main_config_update_interval = 0.1  # Update config every 100ms in main loop (not every frame!)
+    
     while True:
-        remote_config_source.update(config)
-        timestamp = time.time()
-        success, image = capture.get_frame(config)
+        # Get frame from camera capture thread FIRST (blocking, but camera runs in parallel)
+        # Don't do ANY work before getting the frame to maximize consumption rate
+        try:
+            timestamp, success, image = camera_queue.get(timeout=1.0)
+        except queue.Empty:
+            print("No frame received from camera thread")
+            continue
+        
+        # Update config less frequently to reduce overhead (do this AFTER getting frame)
+        if time.time() - last_main_config_update > main_config_update_interval:
+            remote_config_source.update(config)
+            last_main_config_update = time.time()
+        
+        
+
+        # Handle camera failure
+        if not success:
+            print("Camera thread reported failure, restarting process...")
+            sys.exit(1)
 
         # Start and stop recording
         should_record = (
@@ -132,21 +215,6 @@ if __name__ == "__main__":
             print("Stopping recording")
             video_writer.stop()
         was_recording = should_record
-
-        # Exit if no frame
-        if not success:
-            print("Found no frame.")
-            consecutive_failures += 1
-            if consecutive_failures >= 3:
-                print("Too many consecutive failures, restarting process...")
-                sys.exit(1)
-            time.sleep(0.2)
-            #re set "config"
-            capture.reset()
-            capture = CAPTURE_IMPLS[config.local_config.capture_impl]()
-            continue
-
-        consecutive_failures = 0
 
         if calibration_command_source.get_calibrating(config):
             # Calibration mode
