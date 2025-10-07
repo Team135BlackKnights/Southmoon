@@ -52,15 +52,15 @@ class NTOutputPublisher(OutputPublisher):
                 "/" + str(config.local_config.device_id) + "/output"
             )
             self._observations_pub = nt_table.getDoubleArrayTopic("observations").publish(
-                ntcore.PubSubOptions(periodic=0.016, sendAll=True, keepDuplicates=True)
+                ntcore.PubSubOptions(periodic=0.02, sendAll=True, keepDuplicates=True)
             )
             self._demo_observations_pub = nt_table.getDoubleArrayTopic("demo_observations").publish(
-                ntcore.PubSubOptions(periodic=0.016, sendAll=True, keepDuplicates=True)
+                ntcore.PubSubOptions(periodic=0.02, sendAll=True, keepDuplicates=True)
             )
             self._apriltags_fps_pub = nt_table.getIntegerTopic("fps_apriltags").publish()
             self._objdetect_fps_pub = nt_table.getIntegerTopic("fps_objdetect").publish()
             self._objdetect_observations_pub = nt_table.getDoubleArrayTopic("objdetect_observations").publish(
-                ntcore.PubSubOptions(periodic=0.016, sendAll=True, keepDuplicates=True)
+                ntcore.PubSubOptions(periodic=0.02, sendAll=True, keepDuplicates=True)
             )
 
     def send_apriltag_fps(self, config_store: ConfigStore, timestamp: float, fps: int) -> None:

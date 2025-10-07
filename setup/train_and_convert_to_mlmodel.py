@@ -19,11 +19,12 @@ if __name__ == '__main__':  # This is required for Windows!
     print("Training complete! Now exporting to CoreML...")'''
 
     # Load the best model from training
-    trained_model = YOLO('/Users/pennrobotics/Downloads/best.pt') 
+    trained_model = YOLO('/Users/team135/Downloads/best.pt')
 
     # Export to CoreML
     trained_model.export(
     format='coreml',
+    half=True,
     nms=True
 )
 
