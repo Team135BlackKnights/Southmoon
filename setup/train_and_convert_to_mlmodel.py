@@ -19,9 +19,12 @@ if __name__ == '__main__':  # This is required for Windows!
     print("Training complete! Now exporting to CoreML...")'''
 
     # Load the best model from training
-    trained_model = YOLO('C:/Users/grant/Documents/Southmoon/runs/detect/roboflow_model7/weights/best.pt')
+    trained_model = YOLO('/Users/pennrobotics/Downloads/best.pt') 
 
     # Export to CoreML
-    trained_model.export(format='coreml')
+    trained_model.export(
+    format='coreml',
+    nms=True
+)
 
     print("Done! Your .mlpackage file is ready.")
