@@ -432,6 +432,8 @@ class USBCameraCapture(Capture):
             nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
                 f"/{self._last_config.local_config.device_id}/calibration"
             )
+            if camera_list is None or len(camera_list) == 0:
+                camera_list = ['None']
             nt_table.putValue("available_cameras", camera_list)
 
     def reset(self):

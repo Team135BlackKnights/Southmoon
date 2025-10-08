@@ -266,16 +266,11 @@ if __name__ == "__main__":
                         apriltags_frame_count = 0
 
             # Object detection pipeline
-            if config.local_config.objdetect_enable:
-                # Apply FPS limit for object detection
-                if objdetect_next_frame == -1:
-                    objdetect_next_frame = timestamp
-                if config.local_config.obj_detect_max_fps < 0 or timestamp > objdetect_next_frame:
-                    objdetect_next_frame += 1 / config.local_config.obj_detect_max_fps
-                    try:
-                        objdetect_worker_in.put((timestamp, image, config), block=False)
-                    except:  # No space in queue
-                        pass
+            if config.local_config.objdetect_enable:    
+                try:
+                    objdetect_worker_in.put((timestamp, image, config), block=False)
+                except:  # No space in queue
+                    pass
                 try:
                     timestamp_out, observations = objdetect_worker_out.get(block=False)
                 except:  # No new frames

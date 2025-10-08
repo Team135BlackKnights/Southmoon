@@ -6,6 +6,7 @@
 # the root directory of this project.
 
 import queue
+import traceback
 from typing import List, Tuple
 
 import cv2
@@ -32,7 +33,6 @@ def objdetect_worker(
     timestamp_first, image_first, config_first = first_sample
 
     model_path = config_first.local_config.obj_detect_model
-    compute_unit = getattr(config_first.local_config, "obj_detect_compute_unit", None)
     # If compute_unit is provided and matches CoreML ComputeUnit names, use it;
     # otherwise CoreMLObjectDetector default (CPU_AND_NE) is used.
     detector = CoreMLObjectDetector(model_path)
@@ -69,7 +69,7 @@ def objdetect_worker(
         except Exception:
             max_fps = -1.0
 
-        if max_fps and max_fps > 0:
+        if max_fps and max_fps != 0:
             min_dt = 1.0 / max_fps
             if (timestamp - last_sent_ts) < min_dt:
                 # skip frame to respect max_fps
@@ -97,6 +97,9 @@ def objdetect_worker(
                 for obs in observations:
                     overlay_obj_detect_observation(img_copy, obs)
                 stream_server.set_frame(img_copy)
-        except Exception:
+        except Exception as e:
             # Do not crash worker on overlay/stream errors
+            print(e)
+            traceback.print_exc()
+
             pass

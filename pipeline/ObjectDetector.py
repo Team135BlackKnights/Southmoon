@@ -39,7 +39,7 @@ class CoreMLObjectDetector(ObjectDetector):
         self,
         model_path: str,
         input_size: int = 640,
-        compute_units: ComputeUnit = ComputeUnit.CPU_AND_NE,
+        compute_units: ComputeUnit = ComputeUnit.ALL,
     ) -> None:
         # load model once
         print(f"[CoreMLObjectDetector] Loading model from {model_path} ...")
