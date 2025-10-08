@@ -59,7 +59,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 continue
 
             # OpenCV expects (N,1,2)
-            image_points = numpy.array(obs.corner_pixels, dtype=numpy.float64).reshape(-1, 1, 2)
+            image_points = numpy.array(obs.corner_pixels, dtype=numpy.float32)
 
             try:
                 _, rvecs, tvecs, reproj_errors = cv2.solvePnPGeneric(

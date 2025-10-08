@@ -44,10 +44,33 @@ def objdetect_worker(
     stream_server.start(server_port)
     last_sent_ts = 0.0
 
+    # Helper: serialize CameraPoseObservation (with Pose3d) to plain dict so it can be sent via multiprocessing.Queue
+    def _serialize_pose(pose):
+        if pose is None:
+            return None
+        try:
+            p0_t = pose.pose_0.translation()
+            p0_q = pose.pose_0.rotation().getQuaternion()
+            out = {
+                "tag_ids": list(pose.tag_ids),
+                "error_0": pose.error_0,
+                "pose_0": {"t": (p0_t.X(), p0_t.Y(), p0_t.Z()), "q": (p0_q.W(), p0_q.X(), p0_q.Y(), p0_q.Z())},
+                "error_1": None,
+                "pose_1": None,
+            }
+            if pose.error_1 is not None and pose.pose_1 is not None:
+                p1_t = pose.pose_1.translation()
+                p1_q = pose.pose_1.rotation().getQuaternion()
+                out["error_1"] = pose.error_1
+                out["pose_1"] = {"t": (p1_t.X(), p1_t.Y(), p1_t.Z()), "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z())}
+            return out
+        except Exception:
+            return None
+
     # process the first sample immediately (we already have it)
     try:
         observations = detector.detect(image_first, config_first)
-        q_out.put((timestamp_first, observations))
+        q_out.put((timestamp_first, observations, _serialize_pose(bumper_pose_estimator.solve_camera_pose(observations, config_first))), block=False)
         if stream_server.get_client_count() > 0:
             img_copy = image_first.copy()
             for obs in observations:
@@ -81,15 +104,16 @@ def objdetect_worker(
 
         # Run detection
         observations = detector.detect(image, config)
-        pose = bumper_pose_estimator.solve_camera_pose(observations, config)
-        # Put results on output queue (non-blocking if consumer is slow)
+        pose_observations = bumper_pose_estimator.solve_camera_pose(observations, config)
+        pose_serial = _serialize_pose(pose_observations)
+        # Put results on output queue (non-blocking if consumer is slow). Send serializable pose dict.
         try:
-            q_out.put((timestamp, observations, pose), block=False)
+            q_out.put((timestamp, observations, pose_serial), block=False)
         except queue.Full:
             # If output queue is full, drop the oldest and push current (keep recent)
             try:
                 _ = q_out.get_nowait()
-                q_out.put((timestamp, observations, pose), block=False)
+                q_out.put((timestamp, observations, pose_serial), block=False)
             except Exception:
                 pass
 

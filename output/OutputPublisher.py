@@ -132,35 +132,59 @@ class NTOutputPublisher(OutputPublisher):
         self._objdetect_fps_pub.set(fps)
 
     def send_objdetect_observation(
-        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[CameraPoseObservation, None]
+        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[CameraPoseObservation, dict, None]
     ) -> None:
         self._check_init(config_store)
 
         observation_data: List[float] = []
+        #find the observation with the highest confidence
+        max_confidence = -1.0
+        max_confidence_observation = None
         for observation in observations:
-            observation_data.append(observation.obj_class)
-            observation_data.append(observation.confidence)
-            for angle in observation.corner_angles.ravel():
-                observation_data.append(angle)
+            if observation.confidence > max_confidence:
+                max_confidence = observation.confidence
+                max_confidence_observation = observation    
+        if max_confidence_observation is None:        
+            return
+        observation_data.append(max_confidence_observation.obj_class)
+        observation_data.append(max_confidence_observation.confidence)
+        for angle in max_confidence_observation.corner_angles.ravel():
+            observation_data.append(angle)
+            
 
-        if pose is not None:
-            observation_data.append(-1)  # Indicate pose follows
-            observation_data.append(observation.error_0)
-            observation_data.append(observation.pose_0.translation().X())
-            observation_data.append(observation.pose_0.translation().Y())
-            observation_data.append(observation.pose_0.translation().Z())
-            observation_data.append(observation.pose_0.rotation().getQuaternion().W())
-            observation_data.append(observation.pose_0.rotation().getQuaternion().X())
-            observation_data.append(observation.pose_0.rotation().getQuaternion().Y())
-            observation_data.append(observation.pose_0.rotation().getQuaternion().Z())
-            observation_data.append(observation.error_1)
-            observation_data.append(observation.pose_1.translation().X())
-            observation_data.append(observation.pose_1.translation().Y())
-            observation_data.append(observation.pose_1.translation().Z())
-            observation_data.append(observation.pose_1.rotation().getQuaternion().W())
-            observation_data.append(observation.pose_1.rotation().getQuaternion().X())
-            observation_data.append(observation.pose_1.rotation().getQuaternion().Y())
-            observation_data.append(observation.pose_1.rotation().getQuaternion().Z())
+        observation_data.append(-1)  # Indicate pose follows
+        # Pose can be a CameraPoseObservation or a serialized dict produced by worker
+        if isinstance(pose, dict):
+            observation_data.append(pose.get("error_0", 0.0))
+            p0 = pose.get("pose_0", {})
+            t0 = p0.get("t", (0.0, 0.0, 0.0))
+            q0 = p0.get("q", (1.0, 0.0, 0.0, 0.0))
+            observation_data.extend([t0[0], t0[1], t0[2], q0[0], q0[1], q0[2], q0[3]])
+            observation_data.append(pose.get("error_1", 0.0))
+            p1 = pose.get("pose_1", None)
+            if p1:
+                t1 = p1.get("t", (0.0, 0.0, 0.0))
+                q1 = p1.get("q", (1.0, 0.0, 0.0, 0.0))
+                observation_data.extend([t1[0], t1[1], t1[2], q1[0], q1[1], q1[2], q1[3]])
+            else:
+                observation_data.extend([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        else:
+            observation_data.append(pose.error_0)
+            observation_data.append(pose.pose_0.translation().X())
+            observation_data.append(pose.pose_0.translation().Y())
+            observation_data.append(pose.pose_0.translation().Z())
+            observation_data.append(pose.pose_0.rotation().getQuaternion().W())
+            observation_data.append(pose.pose_0.rotation().getQuaternion().X())
+            observation_data.append(pose.pose_0.rotation().getQuaternion().Y())
+            observation_data.append(pose.pose_0.rotation().getQuaternion().Z())
+            observation_data.append(pose.error_1)
+            observation_data.append(pose.pose_1.translation().X())
+            observation_data.append(pose.pose_1.translation().Y())
+            observation_data.append(pose.pose_1.translation().Z())
+            observation_data.append(pose.pose_1.rotation().getQuaternion().W())
+            observation_data.append(pose.pose_1.rotation().getQuaternion().X())
+            observation_data.append(pose.pose_1.rotation().getQuaternion().Y())
+            observation_data.append(pose.pose_1.rotation().getQuaternion().Z())
 
                 
 
