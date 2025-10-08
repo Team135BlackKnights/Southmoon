@@ -13,9 +13,11 @@ import cv2
 from config.config import ConfigStore
 from output.overlay_util import overlay_obj_detect_observation
 from output.StreamServer import MjpegServer
+from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
 from pipeline.ObjectDetector import CoreMLObjectDetector
 from vision_types import ObjDetectObservation
-
+from pipeline.PoseEstimator import SquareTargetPoseEstimator
+from vision_types import FiducialPoseObservation
 
 def objdetect_worker(
     q_in: queue.Queue[Tuple[float, cv2.Mat, ConfigStore]],
@@ -36,6 +38,7 @@ def objdetect_worker(
     # If compute_unit is provided and matches CoreML ComputeUnit names, use it;
     # otherwise CoreMLObjectDetector default (CPU_AND_NE) is used.
     detector = CoreMLObjectDetector(model_path)
+    bumper_pose_estimator = MultiBumperCameraPoseEstimator()
 
     stream_server = MjpegServer()
     stream_server.start(server_port)
@@ -78,15 +81,15 @@ def objdetect_worker(
 
         # Run detection
         observations = detector.detect(image, config)
-
+        pose = bumper_pose_estimator.solve_camera_pose(observations, config)
         # Put results on output queue (non-blocking if consumer is slow)
         try:
-            q_out.put((timestamp, observations), block=False)
+            q_out.put((timestamp, observations, pose), block=False)
         except queue.Full:
             # If output queue is full, drop the oldest and push current (keep recent)
             try:
                 _ = q_out.get_nowait()
-                q_out.put((timestamp, observations), block=False)
+                q_out.put((timestamp, observations, pose), block=False)
             except Exception:
                 pass
 

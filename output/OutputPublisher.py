@@ -132,7 +132,7 @@ class NTOutputPublisher(OutputPublisher):
         self._objdetect_fps_pub.set(fps)
 
     def send_objdetect_observation(
-        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation]
+        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[CameraPoseObservation, None]
     ) -> None:
         self._check_init(config_store)
 
@@ -142,5 +142,26 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(observation.confidence)
             for angle in observation.corner_angles.ravel():
                 observation_data.append(angle)
+
+        if pose is not None:
+            observation_data.append(-1)  # Indicate pose follows
+            observation_data.append(observation.error_0)
+            observation_data.append(observation.pose_0.translation().X())
+            observation_data.append(observation.pose_0.translation().Y())
+            observation_data.append(observation.pose_0.translation().Z())
+            observation_data.append(observation.pose_0.rotation().getQuaternion().W())
+            observation_data.append(observation.pose_0.rotation().getQuaternion().X())
+            observation_data.append(observation.pose_0.rotation().getQuaternion().Y())
+            observation_data.append(observation.pose_0.rotation().getQuaternion().Z())
+            observation_data.append(observation.error_1)
+            observation_data.append(observation.pose_1.translation().X())
+            observation_data.append(observation.pose_1.translation().Y())
+            observation_data.append(observation.pose_1.translation().Z())
+            observation_data.append(observation.pose_1.rotation().getQuaternion().W())
+            observation_data.append(observation.pose_1.rotation().getQuaternion().X())
+            observation_data.append(observation.pose_1.rotation().getQuaternion().Y())
+            observation_data.append(observation.pose_1.rotation().getQuaternion().Z())
+
+                
 
         self._objdetect_observations_pub.set(observation_data, math.floor(timestamp * 1000000))

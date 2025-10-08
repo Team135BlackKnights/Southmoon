@@ -11,7 +11,7 @@ import cv2
 import numpy
 from config.config import ConfigStore
 from pipeline.coordinate_systems import openCvPoseToWpilib, wpilibTranslationToOpenCv
-from vision_types import CameraPoseObservation, FiducialImageObservation
+from vision_types import CameraPoseObservation, FiducialImageObservation, ObjDetectObservation
 from wpimath.geometry import *
 
 
@@ -24,7 +24,84 @@ class CameraPoseEstimator:
     ) -> Union[CameraPoseObservation, None]:
         raise NotImplementedError
 
+class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
+    """
+    Estimates camera-to-bumper poses for FRC bumpers using a list of ObjDetectObservation.
+    Mimics MultiTargetCameraPoseEstimator but without field layout.
+    """
 
+    def __init__(self, bumper_size_m: float = 0.8382):
+        self.bumper_size_m = bumper_size_m
+        half = bumper_size_m / 2.0
+        # Object points in bumper frame
+        self.object_points = numpy.array(
+            [
+                [-half,  half, 0.0],
+                [ half,  half, 0.0],
+                [ half, -half, 0.0],
+                [-half, -half, 0.0],
+            ],
+            dtype=numpy.float64,
+        )
+
+    def solve_camera_pose(
+        self, image_observations: List[ObjDetectObservation], config_store: ConfigStore
+    ) -> Union[CameraPoseObservation, None]:
+
+        if len(image_observations) == 0:
+            return None
+
+        poses = []
+        errors = []
+
+        for i, obs in enumerate(image_observations):
+            if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
+                continue
+
+            # OpenCV expects (N,1,2)
+            image_points = numpy.array(obs.corner_pixels, dtype=numpy.float64).reshape(-1, 1, 2)
+
+            try:
+                _, rvecs, tvecs, reproj_errors = cv2.solvePnPGeneric(
+                    self.object_points,
+                    image_points,
+                    config_store.local_config.camera_matrix,
+                    config_store.local_config.distortion_coefficients,
+                    flags=cv2.SOLVEPNP_IPPE_SQUARE,
+                )
+            except Exception as e:
+                print(f"[MultiBumperCameraPoseEstimator] solvePnP failed: {e}")
+                continue
+
+            # Convert first solution to Pose3d
+            pose_0 = openCvPoseToWpilib(tvecs[0], rvecs[0])
+            err_0 = float(reproj_errors[0][0]) if reproj_errors is not None else 0.0
+
+            # Alternate solution (planar ambiguity)
+            pose_1, err_1 = None, None
+            if len(tvecs) > 1:
+                pose_1 = openCvPoseToWpilib(tvecs[1], rvecs[1])
+                err_1 = float(reproj_errors[1][0]) if reproj_errors is not None else 0.0
+
+            # Camera relative to bumper center
+            poses.append((pose_0, pose_1))
+            errors.append((err_0, err_1))
+
+        if len(poses) == 0:
+            return None
+
+        # Highest confidence observation
+        best_idx = numpy.argmin([e[0] for e in errors])
+        pose_0, pose_1 = poses[best_idx]
+        err_0, err_1 = errors[best_idx]
+
+        return CameraPoseObservation(
+            tag_ids=[0],  # dummy ID since we don't have field IDs
+            pose_0=pose_0,
+            error_0=err_0,
+            pose_1=pose_1,
+            error_1=err_1,
+        )
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:
         pass
