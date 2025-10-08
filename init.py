@@ -277,12 +277,12 @@ if __name__ == "__main__":
                     except:  # No space in queue
                         pass
                 try:
-                    timestamp_out, observations = objdetect_worker_out.get(block=False)
+                    timestamp_out, observations, pose = objdetect_worker_out.get(block=False)
                 except:  # No new frames
                     pass
                 else:
                     # Publish observation
-                    output_publisher.send_objdetect_observation(config, timestamp_out, observations)
+                    output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
 
                     # Store last observations
                     last_objdetect_observations = observations
