@@ -1,8 +1,8 @@
 {
-  "device_id": "FrontLeftCam",
+  "device_id": "BackRightCam",
   "server_ip": "10.1.35.2",
-  "apriltags_stream_port": 8002,
-  "objdetect_stream_port": 8003,
+  "apriltags_stream_port": 8004,
+  "objdetect_stream_port": 8005,
   "capture_impl": "usb",
   "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/best.mlpackage",
   "obj_detect_max_fps": 0,
