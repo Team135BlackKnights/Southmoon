@@ -19,8 +19,8 @@ run_camera() {
         python init.py --config "$config_file" --calibration "$calib_file" 2>&1 | while IFS= read -r line; do
             echo "[$camera_name] $line"
         done
-        echo "$(date): $camera_name exited. Restarting in 5 seconds..." >> /Users/pennrobotics/Library/Logs/Southmoon/camera_log.txt
-        sleep 5
+        echo "$(date): $camera_name exited. Restarting in 2 seconds..." >> /Users/pennrobotics/Library/Logs/Southmoon/camera_log.txt
+        sleep 2
     done
 }
 
