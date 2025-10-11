@@ -170,7 +170,7 @@ class USBCameraCapture(Capture):
                         video_device_index += 1
                     else:
                         #TODO: remove this else after testing
-                        '''cameras.append({
+                        cameras.append({
                             'index': video_device_index,
                             'name': product_name,
                             'vendor_id': vendor_id,
@@ -182,8 +182,8 @@ class USBCameraCapture(Capture):
                             'full_id': f"{product_name}:{unique_id}",
                             'device': dev  # Keep reference to USB device
                         })
-                    
-                        video_device_index += 1'''
+                    # Microsoft® LifeCam HD-3000:usb_045e_0810_003_005', 'USB BillBoard:usb_057e_2003_SN23456789
+                        video_device_index += 1 
                     
             except Exception as e:
                 continue
