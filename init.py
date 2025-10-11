@@ -15,6 +15,8 @@ from typing import List, Tuple, Union
 
 import cv2
 import multiprocessing as mp
+from multiprocessing import shared_memory
+import numpy as np
 import ntcore
 from apriltag_worker import apriltag_worker
 from calibration.CalibrationCommandSource import CalibrationCommandSource, NTCalibrationCommandSource
@@ -147,16 +149,7 @@ if __name__ == "__main__":
         )
         apriltag_worker.start()
 
-    if config.local_config.objdetect_enable:
-        # Run object detection in a separate process to avoid GIL contention
-        objdetect_worker_in = mp.Queue(maxsize=1)
-        objdetect_worker_out = mp.Queue(maxsize=1)
-        objdetect_process = mp.Process(
-            target=objdetect_worker,
-            args=(objdetect_worker_in, objdetect_worker_out, config.local_config.objdetect_stream_port),
-            daemon=True,
-        )
-        objdetect_process.start()
+    
 
     ntcore.NetworkTableInstance.getDefault().setServer(config.local_config.server_ip)
     #convert the ID to string
@@ -169,6 +162,7 @@ if __name__ == "__main__":
     objdetect_last_print = 0
     was_calibrating = False
     was_recording = False
+    hasStartedObjDetect = False
     last_image_observations: List[FiducialImageObservation] = []
     last_objdetect_observations: List[ObjDetectObservation] = []
     video_frame_cache: List[cv2.Mat] = []
@@ -192,7 +186,22 @@ if __name__ == "__main__":
         if time.time() - last_main_config_update > main_config_update_interval:
             remote_config_source.update(config)
             last_main_config_update = time.time()
-        
+        if config.local_config.objdetect_enable and config.remote_config.camera_id != "" and not hasStartedObjDetect:
+            h, w = config.remote_config.camera_resolution_height, config.remote_config.camera_resolution_width
+            if h > 0 and w > 0:
+                shm = shared_memory.SharedMemory(create=True, size=h * w * 3)  # 3 channels RGB
+                buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=shm.buf)
+                
+                objdetect_worker_in = mp.Queue(maxsize=2)
+                objdetect_worker_out = mp.Queue(maxsize=2)
+                
+                objdetect_process = mp.Process(
+                    target=objdetect_worker,
+                    args=(shm.name, h, w, objdetect_worker_in, objdetect_worker_out, config.local_config.model_path),
+                    daemon=True,
+                )
+                objdetect_process.start()
+                hasStartedObjDetect = True
         
 
         # Handle camera failure
@@ -266,31 +275,35 @@ if __name__ == "__main__":
                         apriltags_frame_count = 0
 
             # Object detection pipeline
-            if config.local_config.objdetect_enable:    
+            if config.local_config.objdetect_enable and hasStartedObjDetect:
                 try:
-                    objdetect_worker_in.put((timestamp, image, config), block=False)
-                except:  # No space in queue
-                    pass
-                try:
-                    timestamp_out, observations, pose = objdetect_worker_out.get(block=False)
-                except:  # No new frames
-                    pass
-                else:
-                    # Publish observation
-                    output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
+                    np.copyto(buf, image)
 
-                    # Store last observations
+                    if objdetect_worker_in.full():
+                        _ = objdetect_worker_in.get_nowait()
+                    objdetect_worker_in.put_nowait((timestamp, config))
+                except Exception as e:
+                    print(f"[ObjDetect] Failed to enqueue frame: {e}")
+                    pass
+
+                # Step 3: retrieve results (same as before)
+                try:
+                    timestamp_out, observations, pose = objdetect_worker_out.get_nowait()
+                except queue.Empty:
+                    pass
+                except Exception as e:
+                    print("[WARN] Object detection IPC read failed:", e)
+                else:
+                    output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
                     last_objdetect_observations = observations
 
-                    # Measure FPS
-                    fps = None
                     objdetect_frame_count += 1
-                    if time.time() - objdetect_last_print > 1:
-                        objdetect_last_print = time.time()
-                       #print("Running object detection pipeline at", objdetect_frame_count, "fps")
-                        output_publisher.send_objdetect_fps(config, timestamp, objdetect_frame_count)
+                    dt = time.time() - objdetect_last_print
+                    if dt >= 1.0:
+                        fps = objdetect_frame_count / dt
+                        output_publisher.send_objdetect_fps(config, timestamp, fps)
                         objdetect_frame_count = 0
-
+                        objdetect_last_print = time.time()
             # Save frame to video
             if config.remote_config.is_recording:
                 if len(video_frame_cache) >= 2:

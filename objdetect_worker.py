@@ -7,6 +7,8 @@
 
 import queue
 import traceback
+import numpy as np
+from multiprocessing import shared_memory
 from typing import List, Tuple
 
 import cv2
@@ -16,36 +18,38 @@ from output.StreamServer import MjpegServer
 from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
 from pipeline.ObjectDetector import CoreMLObjectDetector
 from vision_types import ObjDetectObservation
-from pipeline.PoseEstimator import SquareTargetPoseEstimator
-from vision_types import FiducialPoseObservation
+
 
 def objdetect_worker(
-    q_in: queue.Queue[Tuple[float, cv2.Mat, ConfigStore]],
-    q_out: queue.Queue[Tuple[float, List[ObjDetectObservation]]],
+    shm_name: str,
+    height: int,
+    width: int,
+    q_in: queue.Queue[tuple[float, ConfigStore]],
+    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict]],
     server_port: int,
 ):
     """
-    Worker loop:
-      - constructs a single CoreMLObjectDetector once (model path read from first config)
-      - respects optional max_fps throttle (skips frames to keep NE/CPU hot instead of overloading)
-      - overlays detections only when there are clients
+    Shared-memory object detection worker.
+    Receives frames via SharedMemory and lightweight config objects via q_in.
+
+    Workflow:
+      - Initialize model and pose estimator on first frame
+      - Copy frame data from shared memory (avoid pickling)
+      - Run CoreML inference and optional pose solve
+      - Overlay detections for MJPEG server if clients are connected
+      - Send observation + serialized pose back via q_out
     """
-    # block until first sample to obtain config/model path
-    first_sample = q_in.get()
-    timestamp_first, image_first, config_first = first_sample
+    shm = shared_memory.SharedMemory(name=shm_name)
+    frame_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
-    model_path = config_first.local_config.obj_detect_model
-    # If compute_unit is provided and matches CoreML ComputeUnit names, use it;
-    # otherwise CoreMLObjectDetector default (CPU_AND_NE) is used.
-    detector = CoreMLObjectDetector(model_path)
+    detector = None
     bumper_pose_estimator = MultiBumperCameraPoseEstimator()
-
     stream_server = MjpegServer()
     stream_server.start(server_port)
     last_sent_ts = 0.0
 
-    # Helper: serialize CameraPoseObservation (with Pose3d) to plain dict so it can be sent via multiprocessing.Queue
     def _serialize_pose(pose):
+        """Convert pose object into a serializable dict for IPC."""
         if pose is None:
             return None
         try:
@@ -54,7 +58,10 @@ def objdetect_worker(
             out = {
                 "tag_ids": list(pose.tag_ids),
                 "error_0": pose.error_0,
-                "pose_0": {"t": (p0_t.X(), p0_t.Y(), p0_t.Z()), "q": (p0_q.W(), p0_q.X(), p0_q.Y(), p0_q.Z())},
+                "pose_0": {
+                    "t": (p0_t.X(), p0_t.Y(), p0_t.Z()),
+                    "q": (p0_q.W(), p0_q.X(), p0_q.Y(), p0_q.Z()),
+                },
                 "error_1": None,
                 "pose_1": None,
             }
@@ -62,71 +69,67 @@ def objdetect_worker(
                 p1_t = pose.pose_1.translation()
                 p1_q = pose.pose_1.rotation().getQuaternion()
                 out["error_1"] = pose.error_1
-                out["pose_1"] = {"t": (p1_t.X(), p1_t.Y(), p1_t.Z()), "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z())}
+                out["pose_1"] = {
+                    "t": (p1_t.X(), p1_t.Y(), p1_t.Z()),
+                    "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z()),
+                }
             return out
         except Exception:
             return None
 
-    # process the first sample immediately (we already have it)
-    try:
-        observations = detector.detect(image_first, config_first)
-        q_out.put((timestamp_first, observations, _serialize_pose(bumper_pose_estimator.solve_camera_pose(observations, config_first))), block=False)
-        if stream_server.get_client_count() > 0:
-            img_copy = image_first.copy()
-            for obs in observations:
-                overlay_obj_detect_observation(img_copy, obs)
-            stream_server.set_frame(img_copy)
-        last_sent_ts = timestamp_first
-    except Exception:
-        # if first detection fails, continue to loop normally
-        pass
-
-    # main loop - now we can non-blocking wait for frames
     while True:
-        sample = q_in.get()  # block until next sample
-        timestamp: float = sample[0]
-        image: cv2.Mat = sample[1]
-        config: ConfigStore = sample[2]
-
-        # Optional input throttle to avoid swamping CoreML; respects max_fps if set
-        max_fps = -1.0
         try:
-            max_fps = float(config.local_config.obj_detect_max_fps)
-        except Exception:
-            max_fps = -1.0
+            # Wait for next job: (timestamp, config)
+            timestamp, config = q_in.get()
 
-        if max_fps and max_fps != 0:
-            min_dt = 1.0 / max_fps
-            if (timestamp - last_sent_ts) < min_dt:
-                # skip frame to respect max_fps
-                continue
-            last_sent_ts = timestamp
+            if detector is None:
+                model_path = config.local_config.obj_detect_model
+                print(f"[ObjDetectWorker] Loading CoreML model: {model_path}")
+                detector = CoreMLObjectDetector(model_path)
 
-        # Run detection
-        observations = detector.detect(image, config)
-        pose_observations = bumper_pose_estimator.solve_camera_pose(observations, config)
-        pose_serial = _serialize_pose(pose_observations)
-        # Put results on output queue (non-blocking if consumer is slow). Send serializable pose dict.
-        try:
-            q_out.put((timestamp, observations, pose_serial), block=False)
-        except queue.Full:
-            # If output queue is full, drop the oldest and push current (keep recent)
+            max_fps = getattr(config.local_config, "obj_detect_max_fps", -1)
+            if max_fps and max_fps > 0:
+                min_dt = 1.0 / max_fps
+                if (timestamp - last_sent_ts) < min_dt:
+                    continue
+                last_sent_ts = timestamp
+
+            # Copy frame from shared memory
+            image = frame_buf.copy()
+
+            # Run inference
+            observations = detector.detect(image, config)
+            pose_obs = bumper_pose_estimator.solve_camera_pose(observations, config)
+            pose_serial = _serialize_pose(pose_obs)
+
+            # Send results to main process
             try:
-                _ = q_out.get_nowait()
                 q_out.put((timestamp, observations, pose_serial), block=False)
-            except Exception:
-                pass
+            except queue.Full:
+                # Drop oldest if main thread is behind
+                try:
+                    _ = q_out.get_nowait()
+                    q_out.put((timestamp, observations, pose_serial), block=False)
+                except Exception:
+                    pass
 
-        # Only overlay and stream if client connected to avoid wasted work
-        try:
+            # MJPEG overlay (only if client connected)
             if stream_server.get_client_count() > 0:
-                img_copy = image.copy()
-                for obs in observations:
-                    overlay_obj_detect_observation(img_copy, obs)
-                stream_server.set_frame(img_copy)
-        except Exception as e:
-            # Do not crash worker on overlay/stream errors
-            print(e)
-            traceback.print_exc()
+                try:
+                    img_disp = image.copy()
+                    for obs in observations:
+                        overlay_obj_detect_observation(img_disp, obs)
+                    stream_server.set_frame(img_disp)
+                except Exception as e:
+                    print("[ObjDetectWorker] Stream overlay error:", e)
+                    traceback.print_exc()
 
-            pass
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"[ObjDetectWorker] Error: {e}")
+            traceback.print_exc()
+            continue
+
+    shm.close()
+    stream_server.stop()
