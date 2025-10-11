@@ -6,6 +6,7 @@
 # the root directory of this project.
 
 import argparse
+import atexit
 import os
 import queue
 import sys
@@ -172,6 +173,66 @@ if __name__ == "__main__":
     camera_frame_count = 0
     last_main_config_update = time.time()
     main_config_update_interval = 0.1  # Update config every 100ms in main loop (not every frame!)
+    # Objdetect IPC handles (initialized when objdetect starts)
+    objdetect_worker_in = None
+    objdetect_worker_out = None
+    objdetect_process = None
+    objdetect_shm = None
+
+    def _cleanup_objdetect():
+        # Close queues
+        try:
+            if objdetect_worker_in is not None:
+                try:
+                    objdetect_worker_in.close()
+                except Exception:
+                    pass
+                try:
+                    objdetect_worker_in.join_thread()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            if objdetect_worker_out is not None:
+                try:
+                    objdetect_worker_out.close()
+                except Exception:
+                    pass
+                try:
+                    objdetect_worker_out.join_thread()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Terminate process
+        try:
+            if objdetect_process is not None and objdetect_process.is_alive():
+                try:
+                    objdetect_process.terminate()
+                except Exception:
+                    pass
+                try:
+                    objdetect_process.join(timeout=2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Unlink shared memory
+        try:
+            if objdetect_shm is not None:
+                try:
+                    objdetect_shm.close()
+                except Exception:
+                    pass
+                try:
+                    objdetect_shm.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    atexit.register(_cleanup_objdetect)
     
     while True:
         # Get frame from camera capture thread FIRST (blocking, but camera runs in parallel)
@@ -189,16 +250,16 @@ if __name__ == "__main__":
         if config.local_config.objdetect_enable and config.remote_config.camera_id != "" and not hasStartedObjDetect:
             h, w = config.remote_config.camera_resolution_height, config.remote_config.camera_resolution_width
             if h > 0 and w > 0:
-                shm = shared_memory.SharedMemory(create=True, size=h * w * 3)  # 3 channels RGB
-                buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=shm.buf)
-                
+                # Create shared memory for RGB frames and assign to outer var for cleanup
+                objdetect_shm = shared_memory.SharedMemory(create=True, size=h * w * 3)  # 3 channels RGB
+                buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=objdetect_shm.buf)
+
                 objdetect_worker_in = mp.Queue(maxsize=2)
                 objdetect_worker_out = mp.Queue(maxsize=2)
-                
+
                 objdetect_process = mp.Process(
                     target=objdetect_worker,
-                    args=(shm.name, h, w, objdetect_worker_in, objdetect_worker_out, config.local_config.model_path),
-                    daemon=True,
+                    args=(objdetect_shm.name, h, w, objdetect_worker_in, objdetect_worker_out, config.local_config.objdetect_stream_port),
                 )
                 objdetect_process.start()
                 hasStartedObjDetect = True
@@ -301,6 +362,8 @@ if __name__ == "__main__":
                     dt = time.time() - objdetect_last_print
                     if dt >= 1.0:
                         fps = objdetect_frame_count / dt
+                        # to nearest int
+                        fps = int(round(fps))
                         output_publisher.send_objdetect_fps(config, timestamp, fps)
                         objdetect_frame_count = 0
                         objdetect_last_print = time.time()

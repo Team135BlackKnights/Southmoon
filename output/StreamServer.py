@@ -99,9 +99,14 @@ class MjpegServer(StreamServer):
                                 self.wfile.write(frame_data)
                                 self.wfile.write(b"\r\n")
                     except Exception as e:
-                        print("Removed streaming client %s: %s", self.client_address, str(e))
+                        # Better logging and avoid format-string misuse
+                        print(f"Removed streaming client {self.client_address}: {e}")
                     finally:
-                        CLIENT_COUNTS[uuid] -= 1
+                        try:
+                            if CLIENT_COUNTS.get(uuid, 0) > 0:
+                                CLIENT_COUNTS[uuid] -= 1
+                        except Exception:
+                            pass
                 else:
                     self.send_error(404)
                     self.end_headers()
@@ -115,8 +120,30 @@ class MjpegServer(StreamServer):
     def _run(self, port: int) -> None:
         self._uuid = "".join(random.choice(string.ascii_lowercase) for i in range(12))
         CLIENT_COUNTS[self._uuid] = 0
-        server = self.StreamingServer(("", port), self._make_handler(self._uuid))
-        server.serve_forever()
+        try:
+            server = self.StreamingServer(("", port), self._make_handler(self._uuid))
+        except OSError as e:
+            print(f"MjpegServer: failed to bind to port {port}: {e}")
+            # Clean up CLIENT_COUNTS entry
+            try:
+                del CLIENT_COUNTS[self._uuid]
+            except Exception:
+                pass
+            return
+
+        try:
+            server.serve_forever()
+        except Exception as e:
+            print(f"MjpegServer on port {port} stopped unexpectedly: {e}")
+        finally:
+            try:
+                server.server_close()
+            except Exception:
+                pass
+            try:
+                del CLIENT_COUNTS[self._uuid]
+            except Exception:
+                pass
 
     def start(self, port: int) -> None:
         threading.Thread(target=self._run, daemon=True, args=(port,)).start()
