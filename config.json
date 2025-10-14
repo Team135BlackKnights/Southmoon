@@ -1,10 +1,10 @@
 {
   "device_id": "FrontRightCam",
-  "server_ip": "10.0.0.1",
+  "server_ip": "10.1.35.2",
   "apriltags_stream_port": 8000,
   "objdetect_stream_port": 8001,
   "capture_impl": "usb",
-  "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/best.mlpackage",
+  "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage",
   "obj_detect_max_fps": 0,
   "apriltags_enable": true,
   "objdetect_enable": true,

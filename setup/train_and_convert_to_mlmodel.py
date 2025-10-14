@@ -24,11 +24,11 @@ if __name__ == '__main__':  # This is required for Windows!
     # Export to CoreML
     trained_model.export(
     format='coreml',
-    half=True,
     int8=True,
-    nms=False,
+    nms=True,
     batch=1,
     device='mps',
+    data = '/Users/team135/Documents/Southmoon/setup/robot-bumpers/data.yaml',
     
 )
 

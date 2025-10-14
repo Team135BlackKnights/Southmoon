@@ -344,7 +344,7 @@ if __name__ == "__main__":
                         _ = objdetect_worker_in.get_nowait()
                     objdetect_worker_in.put_nowait((timestamp, config))
                 except Exception as e:
-                    print(f"[ObjDetect] Failed to enqueue frame: {e}")
+                    print(f"[ObjDetect] Dropped frame: {e}")
                     pass
 
                 # Step 3: retrieve results (same as before)
