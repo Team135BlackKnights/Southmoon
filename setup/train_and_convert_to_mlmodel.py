@@ -25,7 +25,11 @@ if __name__ == '__main__':  # This is required for Windows!
     trained_model.export(
     format='coreml',
     half=True,
-    nms=True
+    int8=True,
+    nms=False,
+    batch=1,
+    device='mps',
+    
 )
 
     print("Done! Your .mlpackage file is ready.")
