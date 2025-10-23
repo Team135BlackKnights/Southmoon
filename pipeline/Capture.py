@@ -72,6 +72,7 @@ class Capture:
 
         return (
             remote_a.camera_id != remote_b.camera_id
+            or remote_a.camera_location != remote_b.camera_location
             or remote_a.camera_resolution_width != remote_b.camera_resolution_width
             or remote_a.camera_resolution_height != remote_b.camera_resolution_height
             or remote_a.camera_auto_exposure != remote_b.camera_auto_exposure
@@ -90,6 +91,7 @@ class USBCameraCapture(Capture):
     def __init__(self) -> None:
         self._cv_capture = None
         self._usb_device = None
+        self._camera_info = None
         self._device_index = None
         self._last_config: ConfigStore = None
         self._camera_controls = {}
@@ -98,7 +100,7 @@ class USBCameraCapture(Capture):
         self._width = None
         self._height = None
 
-    def _get_iokit_location_id(self, dev) -> Optional[str]:
+    def _get_iokit_location_id(self, dev, config_store: ConfigStore) -> Optional[str]:
         """Best-effort: get macOS IOKit Location ID for a USB device as lowercase hex without 0x.
         """
         
@@ -135,37 +137,74 @@ class USBCameraCapture(Capture):
                         return None
                 return None
 
-            def walk(node):
+            # Iterative traversal to collect all matching nodes (returns a list)
+            matches = []
+            root = data.get("SPUSBDataType")
+            if root is None:
+                return []
+
+            stack = [root]
+            while stack:
+                node = stack.pop()
                 if isinstance(node, dict):
-                    
-                    v = next ((v for k, v in node.items() if "vendor_id" in k), None)
-                    p = next ((v for k, v in node.items() if "product_id"in k), None)
-                    s = next ((v for k, v in node.items() if "serial_num" in k or "serial_number" in k), None)
+                    v = next((v for k, v in node.items() if "vendor_id" in k), None)
+                    p = next((v for k, v in node.items() if "product_id" in k), None)
+                    s = next((v for k, v in node.items() if "serial_num" in k or "serial_number" in k), None)
                     loc = next((v for k, v in node.items() if "location" in k), None)
                     v_int = parse_hex_int(v)
                     p_int = parse_hex_int(p)
-                    match = v_int == vid and p_int == pid
-                    if serial is not None: #added check, not NEEDED
+
+                    # Match vendor and product ids when available, and optional serial
+                    match = True
+                    if vid and v_int is not None:
+                        match = match and (v_int == vid)
+                    if pid and p_int is not None:
+                        match = match and (p_int == pid)
+                    if serial is not None:
                         match = match and (s == serial)
-                    if match and isinstance(loc, str) and loc:
-                        return loc.strip().lower()
-                    # Recurse
+
+                    if match:
+                        # Always append a dict-like node and normalize the location string so later code
+                        # can safely call node.items()
+                        if isinstance(loc, str) and loc:
+                            try:
+                                node['location'] = loc.strip().lower()
+                            except Exception:
+                                # Fallback: create a minimal dict with location only
+                                node = {'location': loc.strip().lower()}
+                        matches.append(node)
+
+                    # Add children to stack for further inspection
                     for child in node.values():
-                        res = walk(child)
-                        if res:
-                            return res
+                        if isinstance(child, (dict, list)):
+                            stack.append(child)
+
                 elif isinstance(node, list):
                     for item in node:
-                        res = walk(item)
-                        if res:
-                            return res
-                return None
-
-            return walk(data.get("SPUSBDataType"))
+                        if isinstance(item, (dict, list)):
+                            stack.append(item)
+            #see if we contain camera_location
+            locs = []
+            for node in matches:
+                loc = next((v for k, v in (dict)(node).items() if "location" in k), None)
+                if (loc is not None):
+                    locs.append(str(loc))
+                    if (str(loc) == str(config_store.remote_config.camera_location)):
+                        return loc
+            #put to NT
+            print (f"Available camera locations: {locs}")
+            if self._last_config:
+                nt_table = ntcore.NetworkTableInstance.getDefault().getTable(
+                    f"/{self._last_config.local_config.device_id}/calibration"
+                )
+                if locs is None or len(locs) == 0:
+                    locs = ['None']
+                nt_table.putValue("available_locations", locs)
         except Exception as e:
             print(f"IOKit Location ID lookup failed: {e}")
             return None
 
+            
     def _get_usb_cameras(self) -> List[Dict]:
         """Get list of USB video devices with unique identifiers."""
         cameras = []
@@ -420,9 +459,8 @@ class USBCameraCapture(Capture):
             force_rebuild = os.getenv("NS_IOKIT_CTL_REBUILD", "0") == "1"
             vid = int(self._usb_device.idVendor)
             pid = int(self._usb_device.idProduct)
-
-            location_id_hex = self._get_iokit_location_id(self._usb_device) or "0"
-
+            #find location id
+            location_id_hex = self._get_iokit_location_id(self._usb_device, config_store) or "0"
             disable_auto = 0 if config_store.remote_config.camera_auto_exposure else 1
             # Ensure integer exposure for C++ std::stoi parsing
             exposure = int(round(float(config_store.remote_config.camera_exposure)))
@@ -490,6 +528,7 @@ class USBCameraCapture(Capture):
         except Exception as e:
             print(f"ns-iokit-ctl error: {e}")
 
+
     def _publish_available_cameras(self):
         """Publish list of available cameras to NetworkTables."""
         cameras = self._get_usb_cameras()
@@ -529,6 +568,7 @@ class USBCameraCapture(Capture):
             self._ffmpeg_proc = None
         
         self._usb_device = None
+        self._camera_info = None
         self._device_index = None
         self._camera_controls = {}
         self._frame_bytes = None
@@ -585,6 +625,7 @@ class USBCameraCapture(Capture):
                 
                 # Store USB device reference
                 self._usb_device = camera_info['device']
+                self._camera_info = camera_info
                 self._device_index = camera_info['index']
                 
                 # Warm up camera

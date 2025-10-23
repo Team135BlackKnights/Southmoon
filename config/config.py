@@ -31,6 +31,7 @@ class LocalConfig:
 @dataclass
 class RemoteConfig:
     camera_id: str = ""
+    camera_location: str = ""
     camera_resolution_width: int = 1600
     camera_resolution_height: int = 1304
     camera_auto_exposure: int = 0
