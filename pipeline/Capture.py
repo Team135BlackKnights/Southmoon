@@ -350,8 +350,11 @@ class USBCameraCapture(Capture):
             force_rebuild = os.getenv("NS_IOKIT_CTL_REBUILD", "0") == "1"
             vid = int(self._usb_device.idVendor)
             pid = int(self._usb_device.idProduct)
+            
             # Location ID: we don't have it via libusb; pass 0 to select first match
-            location_hex = "0"
+            #TODO grab bus
+            bus_val = getattr(self._usb_device, "bus", 0)
+            location_hex = f"{int(bus_val):x}"
 
             disable_auto = 0 if config_store.remote_config.camera_auto_exposure else 1
             exposure = float(config_store.remote_config.camera_exposure)
