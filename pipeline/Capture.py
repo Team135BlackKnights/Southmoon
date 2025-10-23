@@ -6,6 +6,7 @@
 # the root directory of this project.
 
 import dataclasses
+import json
 import os
 import sys
 import time
@@ -97,6 +98,74 @@ class USBCameraCapture(Capture):
         self._width = None
         self._height = None
 
+    def _get_iokit_location_id(self, dev) -> Optional[str]:
+        """Best-effort: get macOS IOKit Location ID for a USB device as lowercase hex without 0x.
+        """
+        
+        try:
+            vid = f'{int(dev.idVendor):04x}'
+            pid = f'{int(dev.idProduct):04x}'
+            serial = None
+            try:
+                if getattr(dev, "iSerialNumber", None):
+                    serial = usb.util.get_string(dev, dev.iSerialNumber)
+            except Exception:
+                pass
+
+            sp = subprocess.run(
+                ["system_profiler", "SPUSBDataType", "-json"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if sp.returncode != 0 or not sp.stdout:
+                return None
+            data = json.loads(sp.stdout)
+
+            def parse_hex_int(val):
+                if isinstance(val, int):
+                    return f'{val:04x}'
+                if isinstance(val, str):
+                    s = val.strip().lower()
+                    try:
+                        if s.startswith("0x"):
+                            return f'{int(s, 16):04x}'
+                        return f'{int(s, 16):04x}' if any(c in s for c in "abcdef") else f'{int(s):04x}'
+                    except Exception:
+                        return None
+                return None
+
+            def walk(node):
+                if isinstance(node, dict):
+                    
+                    v = next ((v for k, v in node.items() if "vendor_id" in k), None)
+                    p = next ((v for k, v in node.items() if "product_id"in k), None)
+                    s = next ((v for k, v in node.items() if "serial_num" in k or "serial_number" in k), None)
+                    loc = next((v for k, v in node.items() if "location" in k), None)
+                    v_int = parse_hex_int(v)
+                    p_int = parse_hex_int(p)
+                    match = v_int == vid and p_int == pid
+                    if serial is not None: #added check, not NEEDED
+                        match = match and (s == serial)
+                    if match and isinstance(loc, str) and loc:
+                        return loc.strip().lower()
+                    # Recurse
+                    for child in node.values():
+                        res = walk(child)
+                        if res:
+                            return res
+                elif isinstance(node, list):
+                    for item in node:
+                        res = walk(item)
+                        if res:
+                            return res
+                return None
+
+            return walk(data.get("SPUSBDataType"))
+        except Exception as e:
+            print(f"IOKit Location ID lookup failed: {e}")
+            return None
+
     def _get_usb_cameras(self) -> List[Dict]:
         """Get list of USB video devices with unique identifiers."""
         cameras = []
@@ -154,6 +223,7 @@ class USBCameraCapture(Capture):
                         # Fall back to bus/address if no serial
                         unique_id = f"usb_{vendor_id:04x}_{product_id:04x}_{dev.bus:03d}_{dev.address:03d}"
                     if vendor_id == 0x05c8:
+                        # Best effort: fetch IOKit Location ID (macOS) for clarity and downstream use
                         cameras.append({
                             'index': video_device_index,
                             'name': product_name,
@@ -350,14 +420,12 @@ class USBCameraCapture(Capture):
             force_rebuild = os.getenv("NS_IOKIT_CTL_REBUILD", "0") == "1"
             vid = int(self._usb_device.idVendor)
             pid = int(self._usb_device.idProduct)
-            
-            # Location ID: we don't have it via libusb; pass 0 to select first match
-            #TODO grab bus
-            bus_val = getattr(self._usb_device, "bus", 0)
-            location_hex = f"{int(bus_val):x}"
+
+            location_id_hex = self._get_iokit_location_id(self._usb_device) or "0"
 
             disable_auto = 0 if config_store.remote_config.camera_auto_exposure else 1
-            exposure = float(config_store.remote_config.camera_exposure)
+            # Ensure integer exposure for C++ std::stoi parsing
+            exposure = int(round(float(config_store.remote_config.camera_exposure)))
             gain = int(config_store.remote_config.camera_gain)
             saturation = int(config_store.remote_config.camera_saturation)
             hue = int(config_store.remote_config.camera_hue)
@@ -399,7 +467,7 @@ class USBCameraCapture(Capture):
                 tool_bin,
                 f"{vid:04x}",
                 f"{pid:04x}",
-                location_hex,
+                location_id_hex,
                 str(disable_auto),
                 str(exposure),
                 str(gain),
