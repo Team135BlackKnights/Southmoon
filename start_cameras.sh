@@ -32,8 +32,8 @@ run_camera() {
 # If you have multiple cameras, add them here:
  run_camera "config.json" "calibration.json" "FrontRightCam" &
  run_camera "config2.json" "calibration2.json" "FrontLeftCam" &
-# run_camera "config3.json" "calibration3.json" "BackRightCam" &
-# run_camera "config4.json" "calibration4.json" "BackLeftCam" &
+ run_camera "config3.json" "calibration3.json" "BackRightCam" &
+ run_camera "config4.json" "calibration4.json" "BackLeftCam" &
 # run_camera "setup/config_rightCam.json" "setup/calibration_rightCam.json" "RightCam" &
 # run_camera "setup/config_extraFrontCam.json" "setup/calibration_extraFrontCam.json" "ExtraFrontCam" &
 
