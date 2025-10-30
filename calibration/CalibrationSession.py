@@ -19,7 +19,7 @@ class CalibrationSession:
     _all_charuco_ids: List[numpy.ndarray] = []
     _imsize = None
 
-    NEW_CALIBRATION_FILENAME = "/Users/team135/Documents/GitHub/Southmoon/new_calibration.json"
+    NEW_CALIBRATION_FILENAME = "/Users/pennrobotics/Documents/GitHub/Southmoon/new_calibration.json"
 
     def __init__(self) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_1000)
