@@ -19,26 +19,28 @@ from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
 from pipeline.ObjectDetector import CoreMLObjectDetector
 from vision_types import ObjDetectObservation
 
+
 def objdetect_worker(
     shm_name: str,
     height: int,
     width: int,
-    q_in: "queue.Queue[tuple[float, ConfigStore]]",
-    q_out: "queue.Queue[tuple[float, List[ObjDetectObservation], dict]]",
+    q_in: queue.Queue[tuple[float, ConfigStore]],
+    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict]],
     server_port: int,
 ):
     """
-    Shared-memory object detection worker optimized to avoid copies where possible.
-    - Reads frame from shared memory (frame_buf)
-    - Loads CoreML detector lazily on first frame
-    - Runs inference, pose solve, and sends results back via q_out
+    Shared-memory object detection worker.
+    Receives frames via SharedMemory and lightweight config objects via q_in.
+
+    Workflow:
+      - Initialize model and pose estimator on first frame
+      - Copy frame data from shared memory (avoid pickling)
+      - Run CoreML inference and optional pose solve
+      - Overlay detections for MJPEG server if clients are connected
+      - Send observation + serialized pose back via q_out
     """
-    try:
-        shm = shared_memory.SharedMemory(name=shm_name)
-        frame_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=shm.buf)
-    except Exception as e:
-        print("[ObjDetectWorker] Failed to open shared memory:", e)
-        return
+    shm = shared_memory.SharedMemory(name=shm_name)
+    frame_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
     detector = None
     bumper_pose_estimator = MultiBumperCameraPoseEstimator()
@@ -47,6 +49,7 @@ def objdetect_worker(
     last_sent_ts = 0.0
 
     def _serialize_pose(pose):
+        """Convert pose object into a serializable dict for IPC."""
         if pose is None:
             return None
         try:
@@ -76,6 +79,7 @@ def objdetect_worker(
 
     while True:
         try:
+            # Wait for next job: (timestamp, config)
             timestamp, config = q_in.get()
 
             if detector is None:
@@ -90,37 +94,26 @@ def objdetect_worker(
                     continue
                 last_sent_ts = timestamp
 
-            # Use the shared buffer directly — avoid an extra copy when possible.
-            # Some detectors may expect a contiguous array; frame_buf already is ndarray over shm
-            image = frame_buf  # view
+            # Copy frame from shared memory
+            image = frame_buf.copy()
 
-            # Optionally convert to UMat if OpenCV supports and it helps
-            try:
-                if hasattr(cv2, "UMat"):
-                    image_for_det = cv2.UMat(image)
-                else:
-                    image_for_det = image
-            except Exception:
-                image_for_det = image
-
-            # Run inference (CoreML-based detector)
-            observations = detector.detect(image_for_det, config)
-
-            # Solve pose using observations (pure-python/c++ code)
+            # Run inference
+            observations = detector.detect(image, config)
             pose_obs = bumper_pose_estimator.solve_camera_pose(observations, config)
             pose_serial = _serialize_pose(pose_obs)
 
-            # Send results to main process (non-blocking, drop oldest if needed)
+            # Send results to main process
             try:
-                q_out.put_nowait((timestamp, observations, pose_serial))
-            except Exception:
+                q_out.put((timestamp, observations, pose_serial), block=False)
+            except queue.Full:
+                # Drop oldest if main thread is behind
                 try:
                     _ = q_out.get_nowait()
-                    q_out.put_nowait((timestamp, observations, pose_serial))
+                    q_out.put((timestamp, observations, pose_serial), block=False)
                 except Exception:
                     pass
 
-            # MJPEG overlay if needed (make a copy for drawing)
+            # MJPEG overlay (only if client connected)
             if stream_server.get_client_count() > 0:
                 try:
                     img_disp = image.copy()
@@ -138,8 +131,5 @@ def objdetect_worker(
             traceback.print_exc()
             continue
 
-    try:
-        shm.close()
-    except Exception:
-        pass
+    shm.close()
     stream_server.stop()

@@ -7,32 +7,30 @@
 
 import argparse
 import atexit
+import os
 import queue
 import sys
 import threading
 import time
 from typing import List, Tuple, Union
 
+import cv2
 import multiprocessing as mp
 from multiprocessing import shared_memory
 import numpy as np
 import ntcore
-
-from apriltag_worker import apriltag_worker as apriltag_worker_process_entry
+from apriltag_worker import apriltag_worker
 from calibration.CalibrationCommandSource import CalibrationCommandSource, NTCalibrationCommandSource
 from calibration.CalibrationSession import CalibrationSession
 from config.config import ConfigStore, LocalConfig, RemoteConfig
 from config.ConfigSource import ConfigSource, FileConfigSource, NTConfigSource
-from objdetect_worker import objdetect_worker as objdetect_worker_process_entry
+from objdetect_worker import objdetect_worker
 from output.OutputPublisher import NTOutputPublisher, OutputPublisher
 from output.StreamServer import MjpegServer, StreamServer
 from output.overlay_util import *
 from output.VideoWriter import FFmpegVideoWriter, VideoWriter
 from pipeline.Capture import CAPTURE_IMPLS
 import builtins
-
-# (Optional) toggle UMat usage for Metal if available
-USE_UMAT = True
 
 class NTLogger:
     def __init__(self, config_store=None):
@@ -47,98 +45,67 @@ class NTLogger:
     def write(self, msg):
         self._buffer += str(msg)
         if "\n" in msg:
-            try:
-                self.nt_table.putString(self.log_key, self._buffer)
-            except Exception:
-                pass
+            self.nt_table.putString(self.log_key, self._buffer)
             self._buffer = ""
 
     def flush(self):
         if self._buffer:
-            try:
-                self.nt_table.putString(self.log_key, self._buffer)
-            except Exception:
-                pass
+            self.nt_table.putString(self.log_key, self._buffer)
             self._buffer = ""
 
+
 def camera_capture_worker(
-    capture,
-    config_store: ConfigStore,
+    capture, 
+    config_store: ConfigStore, 
     remote_config_source: ConfigSource,
-    q_out: queue.Queue,  # small control queue carrying (timestamp, success)
-    shm_targets: dict,   # dict of {name: (shm_obj, np.ndarray view)}
+    q_out: queue.Queue[Tuple[float, bool, cv2.Mat]]
 ):
     """
-    Dedicated camera capture thread that reads frames and writes into any
-    provided shared memory buffers (objdetect / apriltag) and notifies main loop
-    via small control queue. Avoids copying frames through Python queues.
+    Dedicated camera capture thread that continuously reads frames from the camera
+    and puts them in a queue. This prevents blocking the main processing loop.
     """
     consecutive_failures = 0
     last_config_update = 0
-    config_update_interval = 0.1  # Update config every 100ms
+    config_update_interval = 0.1  # Update config every 100ms instead of every frame
     frames_dropped = 0
-
+    
     while True:
-        # Update config periodically (reduces NT load)
+        # Update config from NetworkTables periodically (not every frame to avoid overhead)
         current_time = time.time()
         if current_time - last_config_update > config_update_interval:
-            try:
-                remote_config_source.update(config_store)
-            except Exception:
-                pass
+            remote_config_source.update(config_store)
             last_config_update = current_time
-
+        
         timestamp = time.time()
-        success, frame = capture.get_frame(config_store)
-
+        success, image = capture.get_frame(config_store)
+        
         if not success:
             consecutive_failures += 1
             if consecutive_failures >= 3:
-                print("Camera capture: Too many consecutive failures, signalling restart.")
-                q_out.put((timestamp, False))
+                print("Camera capture: Too many consecutive failures, restarting...")
+                # Signal the main thread to restart
+                q_out.put((timestamp, False, None))
                 return
             time.sleep(0.2)
             continue
-
+        
         consecutive_failures = 0
-
-        # If frame shape doesn't match shared memory target shape, skip writing that target
-        h, w = frame.shape[:2]
-
-        # Write into each shared memory target's buffer if size matches
-        for name, (shm_obj, buf_view) in shm_targets.items():
-            try:
-                if buf_view.shape[0] == h and buf_view.shape[1] == w and buf_view.shape[2] == frame.shape[2]:
-                    # Use np.copyto to avoid creating extra arrays
-                    np.copyto(buf_view, frame)
-                else:
-                    # shapes don't match; skip target
-                    pass
-            except Exception as e:
-                # don't crash capture thread for a worker failure
-                if (frames_dropped % 100) == 0:
-                    print(f"[camera_capture_worker] write to shm '{name}' failed: {e}")
-                frames_dropped += 1
-                continue
-
-        # Notify main loop a new frame is available
+        
+        # Put frame in queue (non-blocking). Just skip if queue is full - don't try to drop old frames
+        # This is faster and avoids contention with the main loop
         try:
-            q_out.put_nowait((timestamp, True))
+            q_out.put((timestamp, True, image), block=False)
         except queue.Full:
-            # main loop is behind — drop notifying but keep capturing (prevents blocking)
             frames_dropped += 1
             if frames_dropped % 100 == 0:
-                print(f"[camera_capture_worker] dropped {frames_dropped} frame notifications (main loop slow)")
+                print(f"Camera: Dropped {frames_dropped} frames (main loop too slow)")
+            pass
+
 
 # Save the original print function
-if __name__ == "__main__":
-    # Ensure spawn start method on macOS
-    try:
-        mp.set_start_method("spawn", force=False)
-    except RuntimeError:
-        # already set
-        pass
 
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.json")
     parser.add_argument("--calibration", default="calibration.json")
@@ -149,7 +116,6 @@ if __name__ == "__main__":
     remote_config_source: ConfigSource = NTConfigSource()
     calibration_command_source: CalibrationCommandSource = NTCalibrationCommandSource()
     local_config_source.update(config)
-
     original_print = builtins.print
     nt_logger = NTLogger(config_store=config)
 
@@ -159,45 +125,37 @@ if __name__ == "__main__":
         original_print(*args, **kwargs)
 
     builtins.print = nt_print
-
     capture = CAPTURE_IMPLS[config.local_config.capture_impl]()
     output_publisher: OutputPublisher = NTOutputPublisher()
     video_writer: VideoWriter = FFmpegVideoWriter()
     calibration_session = CalibrationSession()
     calibration_session_server: Union[StreamServer, None] = None
 
-    # Shared memory objects (initialized lazily)
-    apriltag_shm = None
-    apriltag_buf = None
-    objdetect_shm = None
-    objdetect_buf = None
-
-    # Worker processes / queues
-    apriltag_proc = None
-    apriltag_in = None
-    apriltag_out = None
-
-    objdetect_proc = None
-    objdetect_in = None
-    objdetect_out = None
-
-    # Camera notification queue (tiny, only telling main "new frame" and success)
-    camera_notify_q = queue.Queue(maxsize=2)
-
-    # Start capture thread (it writes into shared memory targets we create later)
-    shm_targets = {}  # name -> (SharedMemory obj, numpy view)
+    # Camera capture queue and thread - LARGE queue to buffer frames while main loop is busy
+    camera_queue = queue.Queue(maxsize=30)  # Buffer up to 30 frames (0.5 seconds at 60fps)
     camera_thread = threading.Thread(
         target=camera_capture_worker,
-        args=(capture, config, remote_config_source, camera_notify_q, shm_targets),
+        args=(capture, config, remote_config_source, camera_queue),
         daemon=True,
     )
     camera_thread.start()
 
-    # NetworkTables client init
+    if config.local_config.apriltags_enable:
+        apriltag_worker_in = queue.Queue(maxsize=1)
+        apriltag_worker_out = queue.Queue(maxsize=1)
+        apriltag_worker = threading.Thread(
+            target=apriltag_worker,
+            args=(apriltag_worker_in, apriltag_worker_out, config.local_config.apriltags_stream_port),
+            daemon=True,
+        )
+        apriltag_worker.start()
+
+    
+
     ntcore.NetworkTableInstance.getDefault().setServer(config.local_config.server_ip)
+    #convert the ID to string
     ntcore.NetworkTableInstance.getDefault().startClient4(str(config.local_config.device_id))
 
-    # state & counters
     apriltags_frame_count = 0
     apriltags_last_print = 0
     objdetect_next_frame = -1
@@ -206,233 +164,221 @@ if __name__ == "__main__":
     was_calibrating = False
     was_recording = False
     hasStartedObjDetect = False
-    hasStartedApriltags = False
-    last_image_observations: List = []
-    last_objdetect_observations: List = []
-    video_frame_cache: List = []
-
+    last_image_observations: List[FiducialImageObservation] = []
+    last_objdetect_observations: List[ObjDetectObservation] = []
+    video_frame_cache: List[cv2.Mat] = []
+    
+    # Debug timing
+    last_debug_print = time.time()
+    camera_frame_count = 0
     last_main_config_update = time.time()
-    main_config_update_interval = 0.1
+    main_config_update_interval = 0.1  # Update config every 100ms in main loop (not every frame!)
+    # Objdetect IPC handles (initialized when objdetect starts)
+    objdetect_worker_in = None
+    objdetect_worker_out = None
+    objdetect_process = None
+    objdetect_shm = None
 
-    def _cleanup_all():
-        # Terminate apriltag process & clean shared memory
-        global apriltag_proc, apriltag_shm, apriltag_in, apriltag_out
-        global objdetect_proc, objdetect_shm, objdetect_in, objdetect_out
-
+    def _cleanup_objdetect():
+        # Close queues
         try:
-            if apriltag_in is not None:
+            if objdetect_worker_in is not None:
                 try:
-                    apriltag_in.close()
+                    objdetect_worker_in.close()
                 except Exception:
                     pass
-            if apriltag_out is not None:
                 try:
-                    apriltag_out.close()
+                    objdetect_worker_in.join_thread()
                 except Exception:
                     pass
         except Exception:
             pass
         try:
-            if apriltag_proc is not None and apriltag_proc.is_alive():
-                apriltag_proc.terminate()
-                apriltag_proc.join(timeout=2)
-        except Exception:
-            pass
-        try:
-            if apriltag_shm is not None:
-                apriltag_shm.close()
-                apriltag_shm.unlink()
-        except Exception:
-            pass
-
-        try:
-            if objdetect_in is not None:
+            if objdetect_worker_out is not None:
                 try:
-                    objdetect_in.close()
+                    objdetect_worker_out.close()
                 except Exception:
                     pass
-            if objdetect_out is not None:
                 try:
-                    objdetect_out.close()
+                    objdetect_worker_out.join_thread()
                 except Exception:
                     pass
         except Exception:
             pass
+        # Terminate process
         try:
-            if objdetect_proc is not None and objdetect_proc.is_alive():
-                objdetect_proc.terminate()
-                objdetect_proc.join(timeout=2)
+            if objdetect_process is not None and objdetect_process.is_alive():
+                try:
+                    objdetect_process.terminate()
+                except Exception:
+                    pass
+                try:
+                    objdetect_process.join(timeout=2)
+                except Exception:
+                    pass
         except Exception:
             pass
+        # Unlink shared memory
         try:
             if objdetect_shm is not None:
-                objdetect_shm.close()
-                objdetect_shm.unlink()
+                try:
+                    objdetect_shm.close()
+                except Exception:
+                    pass
+                try:
+                    objdetect_shm.unlink()
+                except Exception:
+                    pass
         except Exception:
             pass
 
-    atexit.register(_cleanup_all)
-
-    # Main loop
+    atexit.register(_cleanup_objdetect)
+    
     while True:
-        # Wait for camera thread to signal a new frame (non-blocking-ish)
+        # Get frame from camera capture thread FIRST (blocking, but camera runs in parallel)
+        # Don't do ANY work before getting the frame to maximize consumption rate
         try:
-            ts, success = camera_notify_q.get(timeout=1.0)
+            timestamp, success, image = camera_queue.get(timeout=1.0)
         except queue.Empty:
             print("No frame received from camera thread")
             continue
-
-        # Update config periodically (cheap)
+        
+        # Update config less frequently to reduce overhead (do this AFTER getting frame)
         if time.time() - last_main_config_update > main_config_update_interval:
-            try:
-                remote_config_source.update(config)
-            except Exception:
-                pass
+            remote_config_source.update(config)
             last_main_config_update = time.time()
-
-        # Initialize apriltag shared memory & process lazily
-        if config.local_config.apriltags_enable and not hasStartedApriltags:
+        if config.local_config.objdetect_enable and config.remote_config.camera_id != "" and not hasStartedObjDetect:
             h, w = config.remote_config.camera_resolution_height, config.remote_config.camera_resolution_width
             if h > 0 and w > 0:
-                try:
-                    size = h * w * 3
-                    apriltag_shm = shared_memory.SharedMemory(create=True, size=size)
-                    apriltag_buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=apriltag_shm.buf)
-                    # create small mp queues for control
-                    apriltag_in = mp.Queue(maxsize=2)
-                    apriltag_out = mp.Queue(maxsize=2)
-                    apriltag_proc = mp.Process(
-                        target=apriltag_worker_process_entry,
-                        args=(apriltag_shm.name, h, w, apriltag_in, apriltag_out, config.local_config.apriltags_stream_port),
-                        daemon=True,
-                    )
-                    apriltag_proc.start()
-                    shm_targets["apriltag"] = (apriltag_shm, apriltag_buf)
-                    hasStartedApriltags = True
-                    print("[init] Started apriltag worker process")
-                except Exception as e:
-                    print("[init] Failed to start apriltag worker:", e)
+                # Create shared memory for RGB frames and assign to outer var for cleanup
+                objdetect_shm = shared_memory.SharedMemory(create=True, size=h * w * 3)  # 3 channels RGB
+                buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=objdetect_shm.buf)
 
-        # Initialize objdetect shared memory & process lazily
-        if config.local_config.objdetect_enable and not hasStartedObjDetect:
-            h, w = config.remote_config.camera_resolution_height, config.remote_config.camera_resolution_width
-            if h > 0 and w > 0:
-                try:
-                    size = h * w * 3
-                    objdetect_shm = shared_memory.SharedMemory(create=True, size=size)
-                    objdetect_buf = np.ndarray((h, w, 3), dtype=np.uint8, buffer=objdetect_shm.buf)
-                    objdetect_in = mp.Queue(maxsize=2)
-                    objdetect_out = mp.Queue(maxsize=2)
-                    objdetect_proc = mp.Process(
-                        target=objdetect_worker_process_entry,
-                        args=(objdetect_shm.name, h, w, objdetect_in, objdetect_out, config.local_config.objdetect_stream_port),
-                        daemon=True,
-                    )
-                    objdetect_proc.start()
-                    shm_targets["objdetect"] = (objdetect_shm, objdetect_buf)
-                    hasStartedObjDetect = True
-                    print("[init] Started objdetect worker process")
-                except Exception as e:
-                    print("[init] Failed to start objdetect worker:", e)
+                objdetect_worker_in = mp.Queue(maxsize=2)
+                objdetect_worker_out = mp.Queue(maxsize=2)
 
+                objdetect_process = mp.Process(
+                    target=objdetect_worker,
+                    args=(objdetect_shm.name, h, w, objdetect_worker_in, objdetect_worker_out, config.local_config.objdetect_stream_port),
+                )
+                objdetect_process.start()
+                hasStartedObjDetect = True
+        
+
+        # Handle camera failure
         if not success:
             print("Camera thread reported failure, restarting process...")
             sys.exit(1)
 
-        # For shared-memory worker model, the camera thread already copied the frame into shared memory.
-        # Here we only send a small control message telling worker(s) to run on latest frame.
-        if config.local_config.apriltags_enable and hasStartedApriltags:
-            try:
-                if not apriltag_in.full():
-                    apriltag_in.put_nowait((ts, config))
-            except Exception:
-                pass
+        # Start and stop recording
+        should_record = (
+            success
+            and config.remote_config.is_recording
+            and config.remote_config.camera_resolution_width > 0
+            and config.remote_config.camera_resolution_height > 0
+            and config.remote_config.timestamp > 0
+        )
+        if should_record and not was_recording:
+            print("Starting recording")
+            video_writer.start(config, len(image.shape) == 2)
+        elif not should_record and was_recording:
+            print("Stopping recording")
+            video_writer.stop()
+        was_recording = should_record
 
-            # Try to read back result
-            try:
-                ts_out, image_observations, pose_observation, tag_angle_observations, demo_pose = apriltag_out.get_nowait()
-            except Exception:
-                # no result available
-                pass
-            else:
-                output_publisher.send_apriltag_observation(config, ts_out, pose_observation, tag_angle_observations, demo_pose)
-                last_image_observations = image_observations
-
-                apriltags_frame_count += 1
-                if time.time() - apriltags_last_print > 1.0:
-                    output_publisher.send_apriltag_fps(config, ts_out, apriltags_frame_count)
-                    apriltags_frame_count = 0
-                    apriltags_last_print = time.time()
-
-        # Object detection pipeline
-        if config.local_config.objdetect_enable and hasStartedObjDetect:
-            try:
-                if not objdetect_in.full():
-                    objdetect_in.put_nowait((ts, config))
-            except Exception:
-                pass
-
-            try:
-                ts_out, observations, pose = objdetect_out.get_nowait()
-            except Exception:
-                pass
-            else:
-                output_publisher.send_objdetect_observation(config, ts_out, observations, pose)
-                last_objdetect_observations = observations
-
-                objdetect_frame_count += 1
-                dt = time.time() - objdetect_last_print
-                if dt >= 1.0:
-                    fps = int(round(objdetect_frame_count / dt))
-                    output_publisher.send_objdetect_fps(config, ts_out, fps)
-                    objdetect_frame_count = 0
-                    objdetect_last_print = time.time()
-
-        # Recording + overlays on main process (read latest frame from one of the shm buffers)
-        if config.remote_config.is_recording:
-            # choose source buffer if available
-            if "objdetect" in shm_targets:
-                buf = shm_targets["objdetect"][1]
-            elif "apriltag" in shm_targets:
-                buf = shm_targets["apriltag"][1]
-            else:
-                # no shm, fall back to capture.get_frame (expensive) - try to avoid this path
-                success2, img_for_record = capture.get_frame(config)
-                if not success2:
-                    img_for_record = None
-                else:
-                    img_for_record = img_for_record
-                buf = None
-
-            if buf is not None:
-                # make a copy for video writer to avoid concurrency with capture thread
-                img_copy = buf.copy()
-            else:
-                img_copy = img_for_record
-
-            if img_copy is not None:
-                if len(video_frame_cache) >= 2:
-                    video_writer.write_frame(ts, video_frame_cache.pop(0), last_image_observations, last_objdetect_observations)
-                video_frame_cache.append(img_copy)
-        else:
-            video_frame_cache = []
-
-        # Calibration handling (unchanged)
         if calibration_command_source.get_calibrating(config):
+            # Calibration mode
             if not was_calibrating:
                 calibration_session_server = MjpegServer()
                 calibration_session_server.start(7999)
             was_calibrating = True
-            # prefer to read calibration frame from apriltag shm if present
-            if "apriltag" in shm_targets:
-                calibration_session.process_frame(shm_targets["apriltag"][1], calibration_command_source.get_capture_flag(config))
-                calibration_session_server.set_frame(shm_targets["apriltag"][1])
-            else:
-                # fallback (rare) - capture a fresh frame
-                ok, f = capture.get_frame(config)
-                if ok:
-                    calibration_session.process_frame(f, calibration_command_source.get_capture_flag(config))
-                    calibration_session_server.set_frame(f)
+            calibration_session.process_frame(image, calibration_command_source.get_capture_flag(config))
+            calibration_session_server.set_frame(image)
+
         elif was_calibrating:
+            # Finish calibration
             calibration_session.finish()
             sys.exit(0)
+
+        elif config.local_config.has_calibration:
+            # AprilTag pipeline
+            if config.local_config.apriltags_enable:
+                try:
+                    apriltag_worker_in.put((timestamp, image, config), block=False)
+                except:  # No space in queue
+                    pass
+                try:
+                    (
+                        timestamp_out,
+                        image_observations,
+                        pose_observation,
+                        tag_angle_observations,
+                        demo_pose_observation,
+                    ) = apriltag_worker_out.get(block=False)
+                except:  # No new frames
+                    pass
+                else:
+                    # Publish observation
+                    output_publisher.send_apriltag_observation(
+                        config, timestamp_out, pose_observation, tag_angle_observations, demo_pose_observation
+                    )
+
+                    # Store last observations
+                    last_image_observations = image_observations
+
+                    # Measure FPS
+                    fps = None
+                    apriltags_frame_count += 1
+                    if time.time() - apriltags_last_print > 1:
+                        apriltags_last_print = time.time()
+                        #print("Running AprilTag pipeline at", apriltags_frame_count, "fps")
+                        output_publisher.send_apriltag_fps(config, timestamp_out, apriltags_frame_count)
+                        apriltags_frame_count = 0
+
+            # Object detection pipeline
+            if config.local_config.objdetect_enable and hasStartedObjDetect:
+                try:
+                    np.copyto(buf, image)
+
+                    if objdetect_worker_in.full():
+                        _ = objdetect_worker_in.get_nowait()
+                    objdetect_worker_in.put_nowait((timestamp, config))
+                except Exception as e:
+                    print(f"[ObjDetect] Dropped frame: {e}")
+                    pass
+
+                # Step 3: retrieve results (same as before)
+                try:
+                    timestamp_out, observations, pose = objdetect_worker_out.get_nowait()
+                except queue.Empty:
+                    pass
+                except Exception as e:
+                    print("[WARN] Object detection IPC read failed:", e)
+                else:
+                    output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
+                    last_objdetect_observations = observations
+
+                    objdetect_frame_count += 1
+                    dt = time.time() - objdetect_last_print
+                    if dt >= 1.0:
+                        fps = objdetect_frame_count / dt
+                        # to nearest int
+                        fps = int(round(fps))
+                        output_publisher.send_objdetect_fps(config, timestamp, fps)
+                        objdetect_frame_count = 0
+                        objdetect_last_print = time.time()
+            # Save frame to video
+            if config.remote_config.is_recording:
+                if len(video_frame_cache) >= 2:
+                    # Delay output by two frames to improve alignment with overlays
+                    video_writer.write_frame(
+                        timestamp, video_frame_cache.pop(0), last_image_observations, last_objdetect_observations
+                    )
+                video_frame_cache.append(image)
+            else:
+                video_frame_cache = []
+
+        else:
+            # No calibration
+            print("No calibration found")
+            time.sleep(0.5)
