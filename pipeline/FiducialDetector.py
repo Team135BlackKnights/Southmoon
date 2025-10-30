@@ -24,7 +24,7 @@ class ArucoFiducialDetector(FiducialDetector):
     def __init__(self, dictionary_id) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         params = cv2.aruco.DetectorParameters()
-        params.adaptiveThreshWinSizeMin = 5
+        params.adaptiveThreshWinSizeMin = 3
         params.adaptiveThreshWinSizeMax = 23
         params.adaptiveThreshWinSizeStep = 10
         params.adaptiveThreshConstant = 7
@@ -37,7 +37,7 @@ class ArucoFiducialDetector(FiducialDetector):
         params.useAruco3Detection = True
        # params.minCornerDistanceRate = 0.10
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
-        params.cornerRefinementMaxIterations = 15   
+        params.cornerRefinementMaxIterations = 30   
         self._aruco_params = params
         
 
