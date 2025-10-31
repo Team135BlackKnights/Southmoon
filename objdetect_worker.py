@@ -96,9 +96,11 @@ def objdetect_worker(
 
             # Copy frame from shared memory
             image = frame_buf.copy()
+            image_for_det = cv2.UMat(image)
+            
 
-            # Run inference
-            observations = detector.detect(image, config)
+            # Run inference (CoreML-based detector)
+            observations = detector.detect(image_for_det, config)
             pose_obs = bumper_pose_estimator.solve_camera_pose(observations, config)
             pose_serial = _serialize_pose(pose_obs)
 
