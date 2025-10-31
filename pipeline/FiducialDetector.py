@@ -37,7 +37,7 @@ class ArucoFiducialDetector(FiducialDetector):
         params.useAruco3Detection = True
        # params.minCornerDistanceRate = 0.10
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
-        params.cornerRefinementMaxIterations = 20  
+        params.cornerRefinementMaxIterations = 18  
         self._aruco_params = params
         
 
