@@ -24,20 +24,20 @@ class ArucoFiducialDetector(FiducialDetector):
     def __init__(self, dictionary_id) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         params = cv2.aruco.DetectorParameters()
-        params.adaptiveThreshWinSizeMin = 3
+        params.adaptiveThreshWinSizeMin = 4
         params.adaptiveThreshWinSizeMax = 23
         params.adaptiveThreshWinSizeStep = 10
         params.adaptiveThreshConstant = 7
 
         # Ignore tiny/noisy quads and those too close to borders
-        #params.minMarkerPerimeterRate = 0.1   # default ~0.03; increase to ignore small blobs
+        params.minMarkerPerimeterRate = 0.05   # default ~0.03; increase to ignore small blobs
         #params.maxMarkerPerimeterRate = 1.0
         #params.minGroupDistance = 25
-        #params.minDistanceToBorder = 3
+        params.minDistanceToBorder = 4
         params.useAruco3Detection = True
        # params.minCornerDistanceRate = 0.10
-        params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_NONE
-        params.cornerRefinementMaxIterations = 25  
+        params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+        params.cornerRefinementMaxIterations = 20  
         self._aruco_params = params
         
 
