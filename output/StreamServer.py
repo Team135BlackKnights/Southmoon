@@ -87,7 +87,21 @@ class MjpegServer(StreamServer):
                             if not self_mjpeg._has_frame:
                                 time.sleep(0.1)
                             else:
-                                pil_im = Image.fromarray(self_mjpeg._frame)
+                                frame = self_mjpeg._frame
+                                if frame is None:
+                                    time.sleep(0.05)
+                                    continue
+
+                                # Downscale to 360p (height = 360) while preserving aspect ratio.
+                                h, w = frame.shape[:2]
+                                if h > 360:
+                                    new_h = 360
+                                    new_w = int(round(w * new_h / h))
+                                    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                                else:
+                                    resized = frame
+                                pil_im = Image.fromarray(resized)
+
                                 stream = BytesIO()
                                 pil_im.save(stream, format="JPEG")
                                 frame_data = stream.getvalue()
