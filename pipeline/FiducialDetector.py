@@ -30,14 +30,14 @@ class ArucoFiducialDetector(FiducialDetector):
         params.adaptiveThreshConstant = 7
 
         # Ignore tiny/noisy quads and those too close to borders
-        params.minMarkerPerimeterRate = 0.05   # default ~0.03; increase to ignore small blobs
+        params.minMarkerPerimeterRate = 0.03   # default ~0.03; increase to ignore small blobs
         #params.maxMarkerPerimeterRate = 1.0
         #params.minGroupDistance = 25
         params.minDistanceToBorder = 4
         params.useAruco3Detection = True
        # params.minCornerDistanceRate = 0.10
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
-        params.cornerRefinementMaxIterations = 18  
+        params.cornerRefinementMaxIterations = 25
         self._aruco_params = params
         
 
