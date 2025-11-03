@@ -18,7 +18,6 @@ from pipeline.PoseEstimator import SquareTargetPoseEstimator
 from pipeline.TagAngleCalculator import CameraMatrixTagAngleCalculator
 from vision_types import CameraPoseObservation, FiducialImageObservation, FiducialPoseObservation, TagAngleObservation
 
-DEMO_ID = 42
 
 
 def apriltag_worker(
@@ -49,19 +48,14 @@ def apriltag_worker(
 
         image_observations = fiducial_detector.detect_fiducials(image, config)
         camera_pose_observation = camera_pose_estimator.solve_camera_pose(
-            [x for x in image_observations if x.tag_id != DEMO_ID], config
+            [x for x in image_observations], config
         )
         tag_angle_observations = [
-            tag_angle_calculator.calc_tag_angles(x, config) for x in image_observations if x.tag_id != DEMO_ID
+            tag_angle_calculator.calc_tag_angles(x, config) for x in image_observations
         ]
         tag_angle_observations = [x for x in tag_angle_observations if x != None]
-        demo_image_observations = [x for x in image_observations if x.tag_id == DEMO_ID]
-        demo_pose_observation: Union[FiducialPoseObservation, None] = None
-        if len(demo_image_observations) > 0:
-            demo_pose_observation = tag_pose_estimator.solve_fiducial_pose(demo_image_observations[0], config)
-
         q_out.put(
-            (timestamp, image_observations, camera_pose_observation, tag_angle_observations, demo_pose_observation)
+            (timestamp, image_observations, camera_pose_observation, tag_angle_observations)
         )
         if stream_server.get_client_count() > 0:
             image = image.copy()

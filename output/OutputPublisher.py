@@ -23,7 +23,6 @@ class OutputPublisher:
         timestamp: float,
         observation: Union[CameraPoseObservation, None],
         tag_angles: List[TagAngleObservation],
-        demo_observation: Union[FiducialPoseObservation, None],
     ) -> None:
         raise NotImplementedError
 
@@ -39,7 +38,6 @@ class OutputPublisher:
 class NTOutputPublisher(OutputPublisher):
     _init_complete: bool = False
     _observations_pub: ntcore.DoubleArrayPublisher
-    _demo_observations_pub: ntcore.DoubleArrayPublisher
     _apriltags_fps_pub: ntcore.IntegerPublisher
     _objdetect_fps_pub: ntcore.IntegerPublisher
     _objdetect_observations_pub: ntcore.DoubleArrayPublisher
@@ -52,9 +50,6 @@ class NTOutputPublisher(OutputPublisher):
                 "/" + str(config.local_config.device_id) + "/output"
             )
             self._observations_pub = nt_table.getDoubleArrayTopic("observations").publish(
-                ntcore.PubSubOptions(periodic=0.016667, sendAll=True, keepDuplicates=True, disableRemote=True)
-            )
-            self._demo_observations_pub = nt_table.getDoubleArrayTopic("demo_observations").publish(
                 ntcore.PubSubOptions(periodic=0.016667, sendAll=True, keepDuplicates=True, disableRemote=True)
             )
             self._apriltags_fps_pub = nt_table.getIntegerTopic("fps_apriltags").publish()
@@ -73,7 +68,6 @@ class NTOutputPublisher(OutputPublisher):
         timestamp: float,
         observation: Union[CameraPoseObservation, None],
         tag_angles: List[TagAngleObservation],
-        demo_observation: Union[FiducialPoseObservation, None],
     ) -> None:
         self._check_init(config_store)
 
@@ -105,27 +99,8 @@ class NTOutputPublisher(OutputPublisher):
                 observation_data.append(angle)
             observation_data.append(tag_angle_observation.distance)
 
-        demo_observation_data: List[float] = []
-        if demo_observation != None:
-            demo_observation_data.append(demo_observation.error_0)
-            demo_observation_data.append(demo_observation.pose_0.translation().X())
-            demo_observation_data.append(demo_observation.pose_0.translation().Y())
-            demo_observation_data.append(demo_observation.pose_0.translation().Z())
-            demo_observation_data.append(demo_observation.pose_0.rotation().getQuaternion().W())
-            demo_observation_data.append(demo_observation.pose_0.rotation().getQuaternion().X())
-            demo_observation_data.append(demo_observation.pose_0.rotation().getQuaternion().Y())
-            demo_observation_data.append(demo_observation.pose_0.rotation().getQuaternion().Z())
-            demo_observation_data.append(demo_observation.error_1)
-            demo_observation_data.append(demo_observation.pose_1.translation().X())
-            demo_observation_data.append(demo_observation.pose_1.translation().Y())
-            demo_observation_data.append(demo_observation.pose_1.translation().Z())
-            demo_observation_data.append(demo_observation.pose_1.rotation().getQuaternion().W())
-            demo_observation_data.append(demo_observation.pose_1.rotation().getQuaternion().X())
-            demo_observation_data.append(demo_observation.pose_1.rotation().getQuaternion().Y())
-            demo_observation_data.append(demo_observation.pose_1.rotation().getQuaternion().Z())
-
+        
         self._observations_pub.set(observation_data, math.floor(timestamp * 1000000))
-        self._demo_observations_pub.set(demo_observation_data, math.floor(timestamp * 1000000))
 
     def send_objdetect_fps(self, config_store: ConfigStore, timestamp: float, fps: int) -> None:
         self._check_init(config_store)
