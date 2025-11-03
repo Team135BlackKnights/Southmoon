@@ -59,7 +59,7 @@ class CalibrationSession:
             os.remove(self.NEW_CALIBRATION_FILENAME)
 
         flags = (
-            cv2.CALIB_RATIONAL_MODEL 
+            cv2.CALIB_ZERO_TANGENT_DIST
         )
 
         (retval, camera_matrix, distortion_coefficients, rvecs, tvecs) = cv2.aruco.calibrateCameraCharuco(
