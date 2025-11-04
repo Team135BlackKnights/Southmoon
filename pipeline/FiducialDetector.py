@@ -49,7 +49,6 @@ class ArucoFiducialDetector(FiducialDetector):
         scaled_image = cv2.resize(image, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
         corners, ids, rejected_corners = cv2.aruco.detectMarkers(scaled_image, self._aruco_dict, parameters=self._aruco_params)
         #refine
-        cv2.aruco.refineDetectedMarkers(scaled_image, self._aruco_dict, corners, ids, self._aruco_params)
         if len(corners) == 0:
             return []
         
