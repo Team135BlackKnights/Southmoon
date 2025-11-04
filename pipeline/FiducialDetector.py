@@ -24,25 +24,37 @@ class ArucoFiducialDetector(FiducialDetector):
     def __init__(self, dictionary_id) -> None:
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
         params = cv2.aruco.DetectorParameters()
-        params.adaptiveThreshWinSizeMin = 4
-        params.adaptiveThreshWinSizeMax = 23
-        params.adaptiveThreshWinSizeStep = 10
+        
+        params.adaptiveThreshWinSizeMin = 5
+        params.adaptiveThreshWinSizeMax = 21
+        params.adaptiveThreshWinSizeStep = 8
         params.adaptiveThreshConstant = 7
 
-        # Ignore tiny/noisy quads and those too close to borders
-        params.minMarkerPerimeterRate = 0.03   # default ~0.03; increase to ignore small blobs
-        #params.maxMarkerPerimeterRate = 1.0
-        #params.minGroupDistance = 25
-        params.minDistanceToBorder = 4
+        params.minMarkerPerimeterRate = 0.04
+        params.minDistanceToBorder = 3
+        
         params.useAruco3Detection = True
-       # params.minCornerDistanceRate = 0.10
         params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
-        params.cornerRefinementMaxIterations = 25
+        params.cornerRefinementMaxIterations = 25  # Good balance for 0.75 scale
+        
         self._aruco_params = params
+        
+        # ~2.25x speedup
+        self._detection_scale = 0.75  # 1600x1304 goes to 1200x978
         
 
     def detect_fiducials(self, image: cv2.Mat, config_store: ConfigStore) -> List[FiducialImageObservation]:
-        corners, ids, _ = cv2.aruco.detectMarkers(image, self._aruco_dict, parameters=self._aruco_params)
+        h, w = image.shape[:2]
+        scaled_h, scaled_w = int(h * self._detection_scale), int(w * self._detection_scale)
+        scaled_image = cv2.resize(image, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+        corners, ids, rejected_corners = cv2.aruco.detectMarkers(scaled_image, self._aruco_dict, parameters=self._aruco_params)
+        #refine
+        cv2.aruco.refineDetectedMarkers(scaled_image, self._aruco_dict, corners, ids, self._aruco_params)
         if len(corners) == 0:
             return []
-        return [FiducialImageObservation(id[0], corner) for id, corner in zip(ids, corners)]
+        
+        # Scale corners back to original image coordinates, very important for PNP
+        scale_factor = 1.0 / self._detection_scale
+        scaled_corners = [corner * scale_factor for corner in corners]
+        
+        return [FiducialImageObservation(id[0], corner) for id, corner in zip(ids, scaled_corners)]

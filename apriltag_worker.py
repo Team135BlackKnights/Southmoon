@@ -36,7 +36,6 @@ def apriltag_worker(
     fiducial_detector = ArucoFiducialDetector(cv2.aruco.DICT_APRILTAG_36h11)
     camera_pose_estimator = MultiTargetCameraPoseEstimator()
     tag_angle_calculator = CameraMatrixTagAngleCalculator()
-    tag_pose_estimator = SquareTargetPoseEstimator()
     stream_server = MjpegServer()
     stream_server.start(server_port)
 
