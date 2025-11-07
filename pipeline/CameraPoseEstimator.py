@@ -111,7 +111,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_field_camera = self._quat_to_rotmat(cam_quat)  # rotates camera-frame vectors into field-frame
-
+        return None
         results = []
         errs = []
 
