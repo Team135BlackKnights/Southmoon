@@ -30,7 +30,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         self.bumper_size_m = bumper_size_m
         self.bottom_z = bottom_z
         self.top_z = top_z
-        half = bumper_size_m / 2.0
 
 
     def _unpack_pose3d(self, pose3d: List[float]):
@@ -151,10 +150,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             def norm(v):
                 n = numpy.linalg.norm(v)
                 return v / n if n > 1e-9 else v
-            x_axis = norm(v_x)
-            y_axis = norm(v_y - numpy.dot(v_y, x_axis)*x_axis)  # orthogonalize y to x
-            z_axis = numpy.cross(x_axis, y_axis)
-            z_axis = norm(z_axis)
+            try:
+                x_axis = norm(v_x)
+                x_axis = v_x
+                y_axis = norm(v_y - numpy.dot(v_y, x_axis)*x_axis)  # orthogonalize y to x
+                z_axis = numpy.cross(x_axis, y_axis)
+                z_axis = norm(z_axis)
+            except ZeroDivisionError:
+                continue
             R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])  # object local -> field
 
             quat = self._rotmat_to_quat(R_obj_to_field)

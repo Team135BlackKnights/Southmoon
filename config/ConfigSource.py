@@ -124,7 +124,7 @@ class NTConfigSource(ConfigSource):
             self._fiducial_size_m_sub = nt_table.getDoubleTopic("fiducial_size_m").subscribe(
                 RemoteConfig.fiducial_size_m
             )
-            self._field_camera_pose_sub = nt_table.getFloatArrayTopic("field_camera_pose").subscribe([])
+            self._field_camera_pose_sub = nt_table.getFloatArrayTopic("field_camera_pose").subscribe([0,0,0,0,0,0,0])
             self._tag_layout_sub = nt_table.getStringTopic("tag_layout").subscribe("")
             self._is_recording_sub = nt_table.getBooleanTopic("is_recording").subscribe(False)
             self._timestamp_sub = nt_table.getIntegerTopic("timestamp").subscribe(0)
