@@ -100,9 +100,11 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> Union[CameraPoseObservation, None]:
         if len(image_observations) == 0:
+            print("NA IO")
             return None
         # Exit if no field pos available
         if config_store.remote_config.field_camera_pose == None:
+            print("NA POSE")
             return None
         # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
