@@ -111,7 +111,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_field_camera = self._quat_to_rotmat(cam_quat)  # rotates camera-frame vectors into field-frame
-        return None
+        
         results = []
         errs = []
 
@@ -127,6 +127,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             corner_world_pts = []
             bad = False
+            print("INTERSECTING...")
             for (uv, plane_z) in zip(obs.corner_pixels, corner_zs):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
@@ -150,6 +151,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             def norm(v):
                 n = numpy.linalg.norm(v)
                 return v / n if n > 1e-9 else v
+            print("NORMING...")
             try:
                 x_axis = norm(v_x)
                 x_axis = v_x
@@ -162,7 +164,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             quat = self._rotmat_to_quat(R_obj_to_field)
             field_to_object_pose = Pose3d(Translation3d(centroid[0], centroid[1], centroid[2]), Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])))
-
+            print("REPROG...")
             # estimate a rough reprojection error (optional): reproject world pts back into image and compute pixel error
             reproj_err = 0.0
             for i in range(4):
@@ -181,14 +183,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             results.append((field_to_object_pose, corner_world_pts))
             errs.append(reproj_err)
-
+        
         if len(results) == 0:
             return None
 
         best_idx = int(numpy.argmin(errs))
         best_pose, best_corners = results[best_idx]
         best_err = float(errs[best_idx])
-
+        print("WE ARE THRU")
         # Return CameraPoseObservation but note: we put the object pose into pose_0 (field->object)
         return CameraPoseObservation(
             tag_ids=[0],
