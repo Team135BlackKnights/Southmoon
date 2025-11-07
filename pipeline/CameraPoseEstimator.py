@@ -95,7 +95,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         t = (plane_z - cam_pos_field[2]) / dz
         if t <= 0:
             #veryyyy likely behind camera, aka... tf?
-            pass
+            return None
         return cam_pos_field + t * dir_field
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> Union[CameraPoseObservation, None]:
@@ -110,7 +110,9 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         Kinv = numpy.linalg.inv(K)
-
+        if len(cam_field_pose) != 7:
+            print("NA POSE LEN")
+            return None
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_field_camera = self._quat_to_rotmat(cam_quat)  # rotates camera-frame vectors into field-frame
         
@@ -156,7 +158,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             print("NORMING...")
             try:
                 x_axis = norm(v_x)
-                x_axis = v_x
                 y_axis = norm(v_y - numpy.dot(v_y, x_axis)*x_axis)  # orthogonalize y to x
                 z_axis = numpy.cross(x_axis, y_axis)
                 z_axis = norm(z_axis)
@@ -190,7 +191,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             return None
 
         best_idx = int(numpy.argmin(errs))
-        best_pose, best_corners = results[best_idx]
+        best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
         print("WE ARE THRU")
         # Return CameraPoseObservation but note: we put the object pose into pose_0 (field->object)

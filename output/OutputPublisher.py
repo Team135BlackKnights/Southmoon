@@ -162,6 +162,12 @@ class NTOutputPublisher(OutputPublisher):
                 else:
                     observation_data.extend([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
             else:
+                try:
+                    pose: CameraPoseObservation
+                except:
+                    pose = None
+                if pose is None:
+                    pose = CameraPoseObservation()
                 observation_data.append(pose.error_0)
                 observation_data.append(pose.pose_0.translation().X())
                 observation_data.append(pose.pose_0.translation().Y())
