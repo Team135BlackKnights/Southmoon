@@ -43,6 +43,7 @@ class RemoteConfig:
     camera_gain: float = 0
     fiducial_size_m: float = 0
     tag_layout: any = None
+    field_camera_pose: list[float] = None
     is_recording: bool = False
     timestamp: int = 0
 

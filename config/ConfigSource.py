@@ -88,6 +88,7 @@ class NTConfigSource(ConfigSource):
     _camera_gain_sub: ntcore.DoubleSubscriber
     _fiducial_size_m_sub: ntcore.DoubleSubscriber
     _tag_layout_sub: ntcore.StringSubscriber
+    _field_camera_pose_sub: ntcore.FloatArraySubscriber
     _is_recording_sub: ntcore.BooleanSubscriber
     _timestamp_sub: ntcore.IntegerSubscriber
 
@@ -123,6 +124,7 @@ class NTConfigSource(ConfigSource):
             self._fiducial_size_m_sub = nt_table.getDoubleTopic("fiducial_size_m").subscribe(
                 RemoteConfig.fiducial_size_m
             )
+            self._field_camera_pose_sub = nt_table.getFloatArrayTopic("field_camera_pose").subscribe([])
             self._tag_layout_sub = nt_table.getStringTopic("tag_layout").subscribe("")
             self._is_recording_sub = nt_table.getBooleanTopic("is_recording").subscribe(False)
             self._timestamp_sub = nt_table.getIntegerTopic("timestamp").subscribe(0)
@@ -146,5 +148,6 @@ class NTConfigSource(ConfigSource):
         except:
             config_store.remote_config.tag_layout = None
             pass
+        config_store.remote_config.field_camera_pose = self._field_camera_pose_sub.get()
         config_store.remote_config.is_recording = self._is_recording_sub.get()
         config_store.remote_config.timestamp = self._timestamp_sub.get()
