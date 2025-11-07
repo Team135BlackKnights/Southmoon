@@ -5,7 +5,7 @@
 # license that can be found in the LICENSE file at
 # the root directory of this project.
 
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 
 import numpy
 import numpy.typing
@@ -43,7 +43,7 @@ class RemoteConfig:
     camera_gain: float = 0
     fiducial_size_m: float = 0
     tag_layout: any = None
-    field_camera_pose: list[float] = [0,0,0,0,0,0,0]
+    field_camera_pose: list[float] = field(default_factory=lambda: [0,0,0,0,0,0,0])
     is_recording: bool = False
     timestamp: int = 0
 
