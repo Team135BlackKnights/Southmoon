@@ -96,8 +96,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         if abs(dz) < eps:
             return None  # parallel, no intersection
         t = (plane_z - cam_pos_field[2]) / dz
-        P = cam_pos_field + t * dir_field
-        return P  # always return, even if t < 0
+        Ps = cam_pos_field + t * dir_field
+        return Ps  # always return, even if t < 0
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
         debug_msgs = []
@@ -132,8 +132,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 continue
 
             # Plane Zs (top/bottom) as before
-            corner_zs = [self.top_z, self.top_z, self.bottom_z, self.bottom_z]
-
+            corner_zs = [
+                min(self.top_z, cam_pos_field[2] - 0.01),
+                min(self.top_z, cam_pos_field[2] - 0.01),
+                min(self.bottom_z, cam_pos_field[2] - 0.01),
+                min(self.bottom_z, cam_pos_field[2] - 0.01),
+            ]
             corner_world_pts = []
             debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
 
@@ -146,14 +150,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
 
-                P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
-                if P is None:
+                Ps = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
+                if Ps is None:
                     debug_msgs.append(f"  C{corner_idx}: PARALLEL, skipping")
                     continue
 
                 # No longer skip points just because t < 0
-                corner_world_pts.append(P)
-                debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
+                corner_world_pts.append(Ps)
+                debug_msgs.append(f"  C{corner_idx}: OK P=({Ps[0]:.3f},{Ps[1]:.3f},{Ps[2]:.3f})")
 
             if len(corner_world_pts) < 2:  # need at least 2 points to compute pose
                 debug_msgs.append(f"OBS {obs_idx}: NOT ENOUGH VALID CORNERS")
