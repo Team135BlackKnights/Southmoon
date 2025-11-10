@@ -25,7 +25,7 @@ def objdetect_worker(
     height: int,
     width: int,
     q_in: queue.Queue[tuple[float, ConfigStore]],
-    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict]],
+    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict, str]],
     server_port: int,
 ):
     """
@@ -98,18 +98,17 @@ def objdetect_worker(
             image = frame_buf.copy()            
 
             observations = detector.detect(image, config)
-            print(f"[ObjDetectWorker] Detected {len(observations)} objects")
-            pose_obs = bumper_pose_estimator.solve_camera_pose(observations, config)
+            pose_obs,debug = bumper_pose_estimator.solve_camera_pose(observations, config)
             pose_serial = _serialize_pose(pose_obs)
 
             # Send results to main process
             try:
-                q_out.put((timestamp, observations, pose_serial), block=False)
+                q_out.put((timestamp, observations, pose_serial,debug), block=False)
             except queue.Full:
                 # Drop oldest if main thread is behind
                 try:
                     _ = q_out.get_nowait()
-                    q_out.put((timestamp, observations, pose_serial), block=False)
+                    q_out.put((timestamp, observations, pose_serial,debug), block=False)
                 except Exception:
                     pass
 

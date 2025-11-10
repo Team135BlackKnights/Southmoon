@@ -26,39 +26,12 @@ class CameraPoseEstimator:
     ) -> Union[CameraPoseObservation, None]:
         raise NotImplementedError
 
-class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
-    _nt_init_complete: bool = False
-    _nt_log_pub: ntcore.StringPublisher = None
-    
+class MultiBumperCameraPoseEstimator(CameraPoseEstimator):    
     def __init__(self, bumper_size_m: float = 0.8382, bottom_z: float = 0.0381, top_z: float = 0.1778):
         self.bumper_size_m = bumper_size_m
         self.bottom_z = bottom_z
         self.top_z = top_z
 
-    def _nt_log(self, config_store: ConfigStore, msg: str) -> None:
-        """Publish debug messages to NT without blocking the vision loop."""
-        try:
-            if not self._nt_init_complete:
-                try:
-                    device_id = str(config_store.local_config.device_id)
-                except Exception:
-                    device_id = "unknown_device"
-                nt_path = "/" + device_id + "/config"
-                try:
-                    nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
-                    self._nt_log_pub = nt_table.getStringTopic("print_obj_log").publish()
-                    self._nt_init_complete = True
-                except Exception:
-                    self._nt_log_pub = None
-                    self._nt_init_complete = True
-
-            if self._nt_log_pub is not None:
-                try:
-                    self._nt_log_pub.set(str(msg))
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
     def _unpack_pose3d(self, pose3d: List[float]):
         #todo
@@ -129,22 +102,25 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             return None
         return cam_pos_field + t * dir_field
 
-    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> Union[CameraPoseObservation, None]:
-        self._nt_log(config_store, "STARTING...\n")
+    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
+        debug_msgs = []
+
         if len(image_observations) == 0:
-            self._nt_log(config_store, "NA IO\n")
-            return None
+            debug_msgs.append("NA IO")
+            return None, "\n".join(debug_msgs)
+
         # Exit if no field pos available
         if config_store.remote_config.field_camera_pose == None:
-            self._nt_log(config_store, "NA POSE\n")
-            return None
+            debug_msgs.append("NA POSE")
+            return None, "\n".join(debug_msgs)
+
         # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         Kinv = numpy.linalg.inv(K)
         if len(cam_field_pose) != 7:
-            self._nt_log(config_store, "NA POSE LEN\n")
-            return None
+            debug_msgs.append("NA POSE LEN")
+            return None, "\n".join(debug_msgs)
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_field_camera = self._quat_to_rotmat(cam_quat)  # rotates camera-frame vectors into field-frame
 
@@ -163,7 +139,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             corner_world_pts = []
             bad = False
-            self._nt_log(config_store, "INTERSECTING...\n")
+            debug_msgs.append("INTERSECTING")
             for (uv, plane_z) in zip(obs.corner_pixels, corner_zs):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
@@ -189,13 +165,15 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 n = numpy.linalg.norm(v)
                 return v / n if n > 1e-9 else v
 
-            self._nt_log(config_store, "NORMING...\n")
+            debug_msgs.append("NORMING")
             try:
                 x_axis = norm(v_x)
                 y_axis = norm(v_y - numpy.dot(v_y, x_axis) * x_axis)  # orthogonalize y to x
                 z_axis = numpy.cross(x_axis, y_axis)
                 z_axis = norm(z_axis)
             except ZeroDivisionError:
+                # cannot form stable basis for this observation
+                debug_msgs.append("ZERO DIV")
                 continue
             R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])  # object local -> field
 
@@ -204,7 +182,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 Translation3d(centroid[0], centroid[1], centroid[2]),
                 Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
             )
-            self._nt_log(config_store, "REPROG...\n")
+            debug_msgs.append("REPROG")
             # estimate a rough reprojection error (optional): reproject world pts back into image and compute pixel error
             reproj_err = 0.0
             for i in range(4):
@@ -225,19 +203,22 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             errs.append(reproj_err)
 
         if len(results) == 0:
-            return None
+            debug_msgs.append("NO RESULTS")
+            return None, "\n".join(debug_msgs)
 
         best_idx = int(numpy.argmin(errs))
         best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
-        self._nt_log(config_store, "WE ARE THRU\n")
         # Return CameraPoseObservation but note: we put the object pose into pose_0 (field->object)
-        return CameraPoseObservation(
-            tag_ids=[0],
-            pose_0=best_pose,
-            error_0=best_err,
-            pose_1=None,
-            error_1=None,
+        return (
+            CameraPoseObservation(
+                tag_ids=[0],
+                pose_0=best_pose,
+                error_0=best_err,
+                pose_1=None,
+                error_1=None,
+            ),
+            "\n".join(debug_msgs),
         )
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:

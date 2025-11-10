@@ -185,6 +185,5 @@ class NTOutputPublisher(OutputPublisher):
                 observation_data.append(pose.pose_1.rotation().getQuaternion().Y())
                 observation_data.append(pose.pose_1.rotation().getQuaternion().Z())
 
-                
-
+        
         self._objdetect_observations_pub.set(observation_data, math.floor(timestamp * 1000000))

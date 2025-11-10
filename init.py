@@ -348,13 +348,15 @@ if __name__ == "__main__":
 
                 # Step 3: retrieve results (same as before)
                 try:
-                    timestamp_out, observations, pose = objdetect_worker_out.get_nowait()
+                    timestamp_out, observations, pose,debug = objdetect_worker_out.get_nowait()
                 except queue.Empty:
                     pass
                 except Exception as e:
                     print("[WARN] Object detection IPC read failed:", e)
                 else:
                     output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
+                    if (debug != ""):
+                        print("[ObjDetect]:", debug)
                     last_objdetect_observations = observations
 
                     objdetect_frame_count += 1
