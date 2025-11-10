@@ -97,9 +97,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         if abs(dz) < eps:
             return None  # parallel, cooked
         t = (plane_z - cam_pos_field[2]) / dz
-        if t <= 0:
-            # veryyyy likely behind camera, aka... tf?
-            return None
         return cam_pos_field + t * dir_field
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
