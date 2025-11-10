@@ -158,12 +158,15 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             if len(corner_world_pts) < 2:  # need at least 2 points to compute pose
                 debug_msgs.append(f"OBS {obs_idx}: NOT ENOUGH VALID CORNERS")
                 continue
+            try:
+                corner_world_pts = numpy.vstack(corner_world_pts)
+                centroid = numpy.mean(corner_world_pts, axis=0)
 
-            corner_world_pts = numpy.vstack(corner_world_pts)
-            centroid = numpy.mean(corner_world_pts, axis=0)
-
-            v_x = corner_world_pts[1] - corner_world_pts[0]
-            v_y = corner_world_pts[-1] - corner_world_pts[0]
+                v_x = corner_world_pts[1] - corner_world_pts[0]
+                v_y = corner_world_pts[-1] - corner_world_pts[0]
+            except Exception as e:
+                debug_msgs.append(f"OBS {obs_idx}: EXCEPTION {e}")
+                return None, "\n".join(debug_msgs)
 
             def norm(v):
                 n = numpy.linalg.norm(v)
