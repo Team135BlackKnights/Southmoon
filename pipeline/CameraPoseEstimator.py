@@ -34,19 +34,32 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
     def _nt_log(self, config_store: ConfigStore, msg: str) -> None:
         try:
+            # Lazily initialize cached NT table, key and buffer
+            if not hasattr(self, "_nt_ntable_cached"):
+                try:
+                    device_id = str(config_store.local_config.device_id)
+                except Exception:
+                    device_id = "unknown_device"
+                nt_path = "/" + device_id + "/config/print_log_obj"
+                try:
+                    self._nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
+                except Exception:
+                    self._nt_table = None
+                self._nt_log_key = "log"
+                self._nt_buffer = ""
+                self._nt_ntable_cached = True
 
-            try:
-                device_id = str(config_store.local_config.device_id)
-            except Exception:
-                device_id = "unknown_device"
-            nt_path = "/" + device_id + "/output/OBJPrintLog"
-            try:
-                ntcore.NetworkTableInstance.getDefault().getTable(nt_path).putString("log", msg)
-            except Exception:
-                # swallow NT errors to avoid breaking vision pipeline
-                pass
+            # Buffer like a file-like logger and flush on newline
+            self._nt_buffer += str(msg)
+            if "\n" in msg and self._nt_table is not None:
+                try:
+                    self._nt_table.putString(self._nt_log_key, self._nt_buffer)
+                except Exception:
+                    # swallow NT errors to avoid breaking vision pipeline
+                    pass
+                self._nt_buffer = ""
         except Exception:
-            # if ntcore import fails, silently ignore
+            # if ntcore import or anything else fails, silently ignore
             pass
 
     def _unpack_pose3d(self, pose3d: List[float]):
