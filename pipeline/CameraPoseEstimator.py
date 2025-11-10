@@ -14,6 +14,7 @@ from config.config import ConfigStore
 from pipeline.coordinate_systems import openCvPoseToWpilib, wpilibTranslationToOpenCv
 from vision_types import CameraPoseObservation, FiducialImageObservation, ObjDetectObservation
 from wpimath.geometry import *
+import ntcore
 
 
 class CameraPoseEstimator:
@@ -31,38 +32,57 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         self.bottom_z = bottom_z
         self.top_z = top_z
 
+    def _nt_log(self, config_store: ConfigStore, msg: str) -> None:
+        try:
+
+            try:
+                device_id = str(config_store.local_config.device_id)
+            except Exception:
+                device_id = "unknown_device"
+            nt_path = "/" + device_id + "/output/OBJPrintLog"
+            try:
+                ntcore.NetworkTableInstance.getDefault().getTable(nt_path).putString("log", msg)
+            except Exception:
+                # swallow NT errors to avoid breaking vision pipeline
+                pass
+        except Exception:
+            # if ntcore import fails, silently ignore
+            pass
 
     def _unpack_pose3d(self, pose3d: List[float]):
         #todo
-        tx= pose3d[0]
-        ty= pose3d[1]
-        tz= pose3d[2]
-        qw= pose3d[3]
-        qx= pose3d[4]
-        qy= pose3d[5]
-        qz= pose3d[6]
+        tx = pose3d[0]
+        ty = pose3d[1]
+        tz = pose3d[2]
+        qw = pose3d[3]
+        qx = pose3d[4]
+        qy = pose3d[5]
+        qz = pose3d[6]
         return numpy.array([tx, ty, tz], dtype=float), (qw, qx, qy, qz)
 
     def _quat_to_rotmat(self, q):
         qw, qx, qy, qz = q
-        n = math.sqrt(qw*qw + qx*qx + qy*qy + qz*qz)
+        n = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
         if n == 0:
             raise ValueError("zero quaternion???")
-        qw, qx, qy, qz = qw/n, qx/n, qy/n, qz/n
-        R = numpy.array([
-            [1 - 2*(qy*qy + qz*qz),     2*(qx*qy - qz*qw),     2*(qx*qz + qy*qw)],
-            [    2*(qx*qy + qz*qw), 1 - 2*(qx*qx + qz*qz),     2*(qy*qz - qx*qw)],
-            [    2*(qx*qz - qy*qw),     2*(qy*qz + qx*qw), 1 - 2*(qx*qx + qy*qy)]
-        ], dtype=float)
+        qw, qx, qy, qz = qw / n, qx / n, qy / n, qz / n
+        R = numpy.array(
+            [
+                [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+                [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+                [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+            ],
+            dtype=float,
+        )
         return R
 
     def _rotmat_to_quat(self, R):
-        m00, m01, m02 = R[0,0], R[0,1], R[0,2]
-        m10, m11, m12 = R[1,0], R[1,1], R[1,2]
-        m20, m21, m22 = R[2,0], R[2,1], R[2,2]
+        m00, m01, m02 = R[0, 0], R[0, 1], R[0, 2]
+        m10, m11, m12 = R[1, 0], R[1, 1], R[1, 2]
+        m20, m21, m22 = R[2, 0], R[2, 1], R[2, 2]
         tr = m00 + m11 + m22
         if tr > 0:
-            S = math.sqrt(tr+1.0) * 2
+            S = math.sqrt(tr + 1.0) * 2
             qw = 0.25 * S
             qx = (m21 - m12) / S
             qy = (m02 - m20) / S
@@ -94,28 +114,28 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             return None  # parallel, cooked
         t = (plane_z - cam_pos_field[2]) / dz
         if t <= 0:
-            #veryyyy likely behind camera, aka... tf?
+            # veryyyy likely behind camera, aka... tf?
             return None
         return cam_pos_field + t * dir_field
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> Union[CameraPoseObservation, None]:
         if len(image_observations) == 0:
-            print("NA IO")
+            self._nt_log(config_store, "NA IO")
             return None
         # Exit if no field pos available
         if config_store.remote_config.field_camera_pose == None:
-            print("NA POSE")
+            self._nt_log(config_store, "NA POSE")
             return None
         # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         Kinv = numpy.linalg.inv(K)
         if len(cam_field_pose) != 7:
-            print("NA POSE LEN")
+            self._nt_log(config_store, "NA POSE LEN")
             return None
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_field_camera = self._quat_to_rotmat(cam_quat)  # rotates camera-frame vectors into field-frame
-        
+
         results = []
         errs = []
 
@@ -131,7 +151,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             corner_world_pts = []
             bad = False
-            print("INTERSECTING...")
+            self._nt_log(config_store, "INTERSECTING...")
             for (uv, plane_z) in zip(obs.corner_pixels, corner_zs):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
@@ -152,13 +172,15 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             v_x = corner_world_pts[1] - corner_world_pts[0]
             v_y = corner_world_pts[3] - corner_world_pts[0]
+
             def norm(v):
                 n = numpy.linalg.norm(v)
                 return v / n if n > 1e-9 else v
-            print("NORMING...")
+
+            self._nt_log(config_store, "NORMING...")
             try:
                 x_axis = norm(v_x)
-                y_axis = norm(v_y - numpy.dot(v_y, x_axis)*x_axis)  # orthogonalize y to x
+                y_axis = norm(v_y - numpy.dot(v_y, x_axis) * x_axis)  # orthogonalize y to x
                 z_axis = numpy.cross(x_axis, y_axis)
                 z_axis = norm(z_axis)
             except ZeroDivisionError:
@@ -166,8 +188,11 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])  # object local -> field
 
             quat = self._rotmat_to_quat(R_obj_to_field)
-            field_to_object_pose = Pose3d(Translation3d(centroid[0], centroid[1], centroid[2]), Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])))
-            print("REPROG...")
+            field_to_object_pose = Pose3d(
+                Translation3d(centroid[0], centroid[1], centroid[2]),
+                Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
+            )
+            self._nt_log(config_store, "REPROG...")
             # estimate a rough reprojection error (optional): reproject world pts back into image and compute pixel error
             reproj_err = 0.0
             for i in range(4):
@@ -186,14 +211,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             results.append((field_to_object_pose, corner_world_pts))
             errs.append(reproj_err)
-        
+
         if len(results) == 0:
             return None
 
         best_idx = int(numpy.argmin(errs))
         best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
-        print("WE ARE THRU")
+        self._nt_log(config_store, "WE ARE THRU")
         # Return CameraPoseObservation but note: we put the object pose into pose_0 (field->object)
         return CameraPoseObservation(
             tag_ids=[0],
