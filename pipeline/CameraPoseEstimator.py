@@ -91,14 +91,17 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             qz = 0.25 * S
         return (qw, qx, qy, qz)
 
-    # Intersect a camera ray with a horizontal plane z = plane_z (both in field frame)
+        # Intersect a camera ray with a horizontal plane z = plane_z (both in field frame)
     def _intersect_ray_with_z(self, cam_pos_field, dir_field, plane_z, eps=1e-8):
         dz = dir_field[2]
         if abs(dz) < eps:
-            return None  # parallel, cooked
+            return None  # parallel
+        if dz * (plane_z - cam_pos_field[2]) < 0:
+            # ray points away from plane → flip
+            dir_field = -dir_field
+            dz = -dz
         t = (plane_z - cam_pos_field[2]) / dz
         return cam_pos_field + t * dir_field
-
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
         debug_msgs = []
 
@@ -140,9 +143,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_cam /= numpy.linalg.norm(d_cam)          # normalize direction
-                # Optional: flip Z if camera convention is negative Z forward
-                # d_cam[2] = abs(d_cam[2])
                 d_field = R_camera_field @ d_cam
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
