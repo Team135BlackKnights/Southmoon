@@ -120,13 +120,10 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
-
-        # FIXED: Invert the quaternion (negate x, y, z components)
-        cam_quat_inv = (cam_quat[0], -cam_quat[1], -cam_quat[2], -cam_quat[3])
-        R_camera_field = self._quat_to_rotmat(cam_quat_inv)
-
+        R_camera_field = self._quat_to_rotmat(cam_quat)
+        
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
-        debug_msgs.append(f"CAM QUAT: {cam_quat_inv}")
+        debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
         results = []
         errs = []
@@ -146,7 +143,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_field = R_camera_field @ d_cam  # Now correctly transforms camera ray to field
+                d_field = R_camera_field.T @ d_cam
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
                 
