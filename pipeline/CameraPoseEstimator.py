@@ -103,230 +103,275 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return cam_pos_field + t * dir_field
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
+        import traceback
         debug_msgs = []
-
-        if len(image_observations) == 0:
-            debug_msgs.append("NA IO")
-            return None, "\n".join(debug_msgs)
-
-        if config_store.remote_config.field_camera_pose is None:
-            debug_msgs.append("NA POSE")
-            return None, "\n".join(debug_msgs)
-
-        cam_field_pose = config_store.remote_config.field_camera_pose
-        K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
-        Kinv = numpy.linalg.inv(K)
-        if len(cam_field_pose) != 7:
-            debug_msgs.append("NA POSE LEN")
-            return None, "\n".join(debug_msgs)
-
-        cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
-        R_camera_field = self._quat_to_rotmat(cam_quat)
-
-        debug_msgs.append(f"CAM POS: {cam_pos_field}")
-        debug_msgs.append(f"CAM QUAT: {cam_quat}")
-
-        # Diagnostic forward vectors
         try:
-            fwd_plusz = R_camera_field @ numpy.array([0.0, 0.0, 1.0])
-            fwd_minusz = R_camera_field @ numpy.array([0.0, 0.0, -1.0])
-            fwd_plusz_t = R_camera_field.T @ numpy.array([0.0, 0.0, 1.0])
-            debug_msgs.append(f"FWD (R @ [0,0,1]) = {fwd_plusz}")
-            debug_msgs.append(f"FWD (R @ [0,0,-1]) = {fwd_minusz}")
-            debug_msgs.append(f"FWD (R.T @ [0,0,1]) = {fwd_plusz_t}")
-        except Exception as e:
-            debug_msgs.append(f"FWD DIAG FAILED: {e}")
+            if len(image_observations) == 0:
+                debug_msgs.append("NA IO")
+                return None, "\n".join(debug_msgs)
 
-        results = []
-        errs = []
+            if config_store.remote_config.field_camera_pose is None:
+                debug_msgs.append("NA POSE")
+                return None, "\n".join(debug_msgs)
 
-        # If no observations or not enough info, keep diagnostics and quit
-        # We'll determine the best ray transform mapping using the first observation's corner rays
-        def candidate_transforms_factory(R):
-            """
-            Return a list of candidate functions that map a camera ray d_cam -> d_field
-            and their textual names for debugging.
-            """
-            return [
-                (lambda d: R @ d, "R @ d_cam"),
-                (lambda d: R.T @ d, "R.T @ d_cam"),
-                (lambda d: (R.T @ (d * numpy.array([1.0, 1.0, -1.0]))), "R.T @ (d_cam with Z neg)"),
-            ]
+            cam_field_pose = config_store.remote_config.field_camera_pose
+            K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
+            Kinv = numpy.linalg.inv(K)
 
-        # Also try a common quaternion permutation (shifted packing)
-        q_shifted = (cam_quat[3], cam_quat[0], cam_quat[1], cam_quat[2])
-        R_shifted = self._quat_to_rotmat(q_shifted)
+            if len(cam_field_pose) != 7:
+                debug_msgs.append("NA POSE LEN")
+                return None, "\n".join(debug_msgs)
 
-        # Build candidate list from both original R and shifted R
-        candidates = []
-        candidates.extend(candidate_transforms_factory(R_camera_field))
-        candidates.extend(candidate_transforms_factory(R_shifted))
-        candidate_names = [name for (_, name) in candidates]
+            cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
+            debug_msgs.append(f"CAM POS: {cam_pos_field}")
+            debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
-        debug_msgs.append(f"CANDIDATES: {[name for (_, name) in candidates]} (includes shifted quaternion)")
-
-        # Helper: evaluate candidate by counting how many corner rays point "into" scene (d_field.z < 0)
-        def score_candidate(candidate_fn, obs):
-            # use all corners in the observation (or up to 4) to compute a simple score
-            score = 0
-            total = 0
-            for uv in obs.corner_pixels:
-                u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, 1.0], dtype=float)
-                d_cam = Kinv @ uv1
-                d_field = candidate_fn(d_cam)
-                # consider it "good" if z < 0 and not near-parallel
-                if d_field[2] < -1e-6:
-                    score += 1
-                total += 1
-            return score, total
-
-        # Use the first valid observation to select the best candidate, if possible
-        first_obs = None
-        for obs in image_observations:
-            if obs.corner_pixels is not None and len(obs.corner_pixels) >= 1:
-                first_obs = obs
-                break
-
-        selected_candidate = None
-        selected_name = None
-        if first_obs is not None:
-            scores = []
-            for cand_fn, cand_name in candidates:
-                s, tot = score_candidate(cand_fn, first_obs)
-                scores.append((s, tot, cand_name, cand_fn))
-                debug_msgs.append(f"CAND SCORE {cand_name}: {s}/{tot} rays with z<0")
-            # pick candidate with maximum s (ties by prefer non-shifted first -> we maintain order)
-            scores_sorted = sorted(scores, key=lambda x: (x[0], x[1]), reverse=True)
-            best_s, best_tot, best_name, best_fn = scores_sorted[0]
-            if best_s > 0:
-                selected_candidate = best_fn
-                selected_name = best_name
-                debug_msgs.append(f"SELECTED CANDIDATE: {best_name} with {best_s}/{best_tot}")
-            else:
-                debug_msgs.append("NO CANDIDATE PRODUCED DOWNWARD RAYS (all d_field.z >= 0). Will keep diagnostics and try each obs individually.")
-        else:
-            debug_msgs.append("NO VALID OBS FOR CANDIDATE SELECTION")
-
-        # Now process each observation using the selected candidate (or default to R.T if none selected)
-        if selected_candidate is None:
-            # as a conservative default, choose R_camera_field.T (common convention)
-            selected_candidate = (lambda d: R_camera_field.T @ d)
-            selected_name = "default R.T @ d_cam"
-            debug_msgs.append("FALLBACK: using default R.T @ d_cam")
-
-        for obs_idx, obs in enumerate(image_observations):
-            if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
-                debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
-                continue
-
-            corner_zs = [self.top_z, self.top_z, self.bottom_z, self.bottom_z]
-
-            corner_world_pts = []
-            bad = False
-            debug_msgs.append(f"OBS {obs_idx}: INTERSECTING (using {selected_name})")
-
-            # canonical per-observation diagnostics
+            # Build rotation(s) defensively
             try:
-                uv_center = numpy.array([K[0, 2], K[1, 2], 1.0])
-                d_center_cam = Kinv @ uv_center
-                d_center_field = selected_candidate(d_center_cam)
-                debug_msgs.append(f"  CENTER d_cam={d_center_cam} -> d_field={d_center_field}")
+                R_camera_field = self._quat_to_rotmat(cam_quat)
             except Exception as e:
-                debug_msgs.append(f"  CENTER DIAG FAILED: {e}")
+                debug_msgs.append(f"ERROR building R_camera_field from cam_quat: {e}")
+                debug_msgs.append(traceback.format_exc())
+                # Try a fallback quaternion ordering (common cause)
+                try:
+                    q_shifted = (cam_quat[3], cam_quat[0], cam_quat[1], cam_quat[2])
+                    R_camera_field = self._quat_to_rotmat(q_shifted)
+                    debug_msgs.append("Succeeded with shifted quaternion ordering (fallback).")
+                except Exception as e2:
+                    debug_msgs.append(f"Fallback shift also failed: {e2}")
+                    debug_msgs.append(traceback.format_exc())
+                    return None, "\n".join(debug_msgs)
 
-            for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
-                u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, 1.0], dtype=float)
-                d_cam = Kinv @ uv1
-                d_field = selected_candidate(d_cam)
-
-                debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
-
-                P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
-                if P is None:
-                    dz = d_field[2]
-                    if abs(dz) < 1e-8:
-                        debug_msgs.append(f"  C{corner_idx}: PARALLEL (dz={dz:.6f})")
-                    else:
-                        t = (plane_z - cam_pos_field[2]) / dz
-                        debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t:.3f})")
-                    bad = True
-                    break
-                corner_world_pts.append(P)
-                debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
-
-            if bad:
-                debug_msgs.append(f"OBS {obs_idx}: FAILED INTERSECTION")
-                continue
-
-            corner_world_pts = numpy.vstack(corner_world_pts)
-            centroid = numpy.mean(corner_world_pts, axis=0)
-
-            v_x = corner_world_pts[1] - corner_world_pts[0]
-            v_y = corner_world_pts[3] - corner_world_pts[0]
-
-            def norm(v):
-                n = numpy.linalg.norm(v)
-                return v / n if n > 1e-9 else v
-
-            debug_msgs.append(f"OBS {obs_idx}: NORMING")
+            # Diagnostics: forward vectors
             try:
-                x_axis = norm(v_x)
-                y_axis = norm(v_y - numpy.dot(v_y, x_axis) * x_axis)
-                z_axis = numpy.cross(x_axis, y_axis)
-                z_axis = norm(z_axis)
-            except ZeroDivisionError:
-                debug_msgs.append(f"OBS {obs_idx}: ZERO DIV")
-                continue
+                fwd_plusz = R_camera_field @ numpy.array([0.0, 0.0, 1.0])
+                fwd_minusz = R_camera_field @ numpy.array([0.0, 0.0, -1.0])
+                fwd_plusz_t = R_camera_field.T @ numpy.array([0.0, 0.0, 1.0])
+                debug_msgs.append(f"FWD (R @ [0,0,1]) = {fwd_plusz}")
+                debug_msgs.append(f"FWD (R @ [0,0,-1]) = {fwd_minusz}")
+                debug_msgs.append(f"FWD (R.T @ [0,0,1]) = {fwd_plusz_t}")
+            except Exception as e:
+                debug_msgs.append(f"FWD diag failed: {e}")
+                debug_msgs.append(traceback.format_exc())
 
-            R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])
+            # Candidate transform factory (explicit not using closures that might capture mutated values)
+            def cand_R(d): return R_camera_field @ d
+            def cand_RT(d): return R_camera_field.T @ d
+            def cand_RT_negZ(d): 
+                dd = d.copy()
+                dd[2] = -dd[2]
+                return R_camera_field.T @ dd
 
-            quat = self._rotmat_to_quat(R_obj_to_field)
-            field_to_object_pose = Pose3d(
-                Translation3d(centroid[0], centroid[1], centroid[2]),
-                Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
-            )
-            debug_msgs.append(f"OBS {obs_idx}: REPROG")
+            # Also try shifted quaternion rotations if we built it earlier
+            try:
+                q_shifted = (cam_quat[3], cam_quat[0], cam_quat[1], cam_quat[2])
+                R_shifted = self._quat_to_rotmat(q_shifted)
+                def cand_Rs(d): return R_shifted @ d
+                def cand_RsT(d): return R_shifted.T @ d
+            except Exception:
+                R_shifted = None
+                cand_Rs = None
+                cand_RsT = None
 
-            reproj_err = 0.0
-            for i in range(4):
-                P_field = corner_world_pts[i]
-                # The reprojection uses R_camera_field as the camera rotation from field->camera, so transpose yields field->camera
-                R_field_camera = R_camera_field.T
-                p_cam = R_field_camera @ (P_field - cam_pos_field)
-                if p_cam[2] <= 0:
-                    reproj_err += 1e6
+            candidates = [
+                (cand_R, "R @ d_cam"),
+                (cand_RT, "R.T @ d_cam"),
+                (cand_RT_negZ, "R.T @ (d_cam with Z neg)"),
+            ]
+            if cand_Rs is not None:
+                candidates += [(cand_Rs, "R_shifted @ d_cam"), (cand_RsT, "R_shifted.T @ d_cam")]
+
+            debug_msgs.append("CANDIDATES: " + ", ".join([name for (_, name) in candidates]))
+
+            # helper: score candidate using first viable observation
+            def score_candidate(candidate_fn, obs):
+                score = 0
+                total = 0
+                if obs is None or obs.corner_pixels is None:
+                    return 0, 0
+                for uv in obs.corner_pixels:
+                    try:
+                        u, v = float(uv[0]), float(uv[1])
+                        uv1 = numpy.array([u, v, 1.0], dtype=float)
+                        d_cam = Kinv @ uv1
+                        d_field = candidate_fn(d_cam)
+                        if d_field[2] < -1e-6:
+                            score += 1
+                        total += 1
+                    except Exception:
+                        # ignore per-ray failures for scoring
+                        total += 1
+                return score, total
+
+            # Choose first usable observation to pick candidate
+            first_obs = None
+            for obs in image_observations:
+                if obs and obs.corner_pixels is not None and len(obs.corner_pixels) >= 1:
+                    first_obs = obs
+                    break
+
+            selected_candidate = None
+            selected_name = None
+            if first_obs is not None:
+                best = (-1, None, None)
+                for fn, name in candidates:
+                    try:
+                        s, tot = score_candidate(fn, first_obs)
+                    except Exception as e:
+                        debug_msgs.append(f"Candidate scoring failed for {name}: {e}")
+                        debug_msgs.append(traceback.format_exc())
+                        s, tot = 0, 0
+                    debug_msgs.append(f"CAND SCORE {name}: {s}/{tot}")
+                    if s > best[0]:
+                        best = (s, fn, name)
+                if best[0] > 0:
+                    selected_candidate = best[1]
+                    selected_name = best[2]
+                    debug_msgs.append(f"SELECTED: {selected_name} with score {best[0]}")
+            if selected_candidate is None:
+                selected_candidate = cand_RT
+                selected_name = "fallback R.T @ d_cam (default)"
+                debug_msgs.append("No good candidate found — using fallback R.T @ d_cam")
+
+            results = []
+            errs = []
+
+            # main loop — each observation processed defensively
+            for obs_idx, obs in enumerate(image_observations):
+                try:
+                    if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
+                        debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
+                        continue
+
+                    corner_zs = [self.top_z, self.top_z, self.bottom_z, self.bottom_z]
+                    corner_world_pts = []
+                    bad = False
+                    debug_msgs.append(f"OBS {obs_idx}: INTERSECTING (using {selected_name})")
+
+                    # center ray diagnostic
+                    try:
+                        uv_center = numpy.array([K[0, 2], K[1, 2], 1.0])
+                        d_center_cam = Kinv @ uv_center
+                        d_center_field = selected_candidate(d_center_cam)
+                        debug_msgs.append(f"  CENTER d_cam={d_center_cam} -> d_field={d_center_field}")
+                    except Exception:
+                        debug_msgs.append("  CENTER diag failed")
+                        debug_msgs.append(traceback.format_exc())
+
+                    for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
+                        try:
+                            u, v = float(uv[0]), float(uv[1])
+                            uv1 = numpy.array([u, v, 1.0], dtype=float)
+                            d_cam = Kinv @ uv1
+                            d_field = selected_candidate(d_cam)
+                            debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
+                            P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
+                            if P is None:
+                                dz = d_field[2]
+                                if abs(dz) < 1e-8:
+                                    debug_msgs.append(f"  C{corner_idx}: PARALLEL (dz={dz:.6f})")
+                                else:
+                                    t = (plane_z - cam_pos_field[2]) / dz
+                                    debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t:.6f})")
+                                bad = True
+                                break
+                            corner_world_pts.append(P)
+                            debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
+                        except Exception as e:
+                            debug_msgs.append(f"  C{corner_idx}: per-corner exception: {e}")
+                            debug_msgs.append(traceback.format_exc())
+                            bad = True
+                            break
+
+                    if bad:
+                        debug_msgs.append(f"OBS {obs_idx}: FAILED INTERSECTION")
+                        continue
+
+                    corner_world_pts = numpy.vstack(corner_world_pts)
+                    centroid = numpy.mean(corner_world_pts, axis=0)
+                    v_x = corner_world_pts[1] - corner_world_pts[0]
+                    v_y = corner_world_pts[3] - corner_world_pts[0]
+
+                    def norm(v):
+                        n = numpy.linalg.norm(v)
+                        return v / n if n > 1e-9 else v
+
+                    debug_msgs.append(f"OBS {obs_idx}: NORMING")
+                    try:
+                        x_axis = norm(v_x)
+                        y_axis = norm(v_y - numpy.dot(v_y, x_axis) * x_axis)
+                        z_axis = numpy.cross(x_axis, y_axis)
+                        z_axis = norm(z_axis)
+                    except Exception as e:
+                        debug_msgs.append(f"OBS {obs_idx}: norming exception: {e}")
+                        debug_msgs.append(traceback.format_exc())
+                        continue
+
+                    R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])
+                    quat = self._rotmat_to_quat(R_obj_to_field)
+                    field_to_object_pose = Pose3d(
+                        Translation3d(centroid[0], centroid[1], centroid[2]),
+                        Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
+                    )
+                    debug_msgs.append(f"OBS {obs_idx}: REPROG")
+
+                    reproj_err = 0.0
+                    for i in range(4):
+                        try:
+                            P_field = corner_world_pts[i]
+                            R_field_camera = R_camera_field.T
+                            p_cam = R_field_camera @ (P_field - cam_pos_field)
+                            if p_cam[2] <= 0:
+                                reproj_err += 1e6
+                                continue
+                            proj = K @ (p_cam / p_cam[2])
+                            u_proj, v_proj = proj[0], proj[1]
+                            du = u_proj - float(obs.corner_pixels[i][0])
+                            dv = v_proj - float(obs.corner_pixels[i][1])
+                            reproj_err += math.hypot(du, dv)
+                        except Exception as e:
+                            debug_msgs.append(f"  reproj corner {i} exception: {e}")
+                            debug_msgs.append(traceback.format_exc())
+                            reproj_err += 1e6
+                    reproj_err /= 4.0
+
+                    results.append((field_to_object_pose, corner_world_pts))
+                    errs.append(reproj_err)
+                    debug_msgs.append(f"OBS {obs_idx}: SUCCESS err={reproj_err:.2f}")
+                except Exception as e:
+                    debug_msgs.append(f"OBS {obs_idx}: outer exception: {e}")
+                    debug_msgs.append(traceback.format_exc())
                     continue
-                proj = K @ (p_cam / p_cam[2])
-                u_proj, v_proj = proj[0], proj[1]
-                du = u_proj - float(obs.corner_pixels[i][0])
-                dv = v_proj - float(obs.corner_pixels[i][1])
-                reproj_err += math.hypot(du, dv)
-            reproj_err /= 4.0
 
-            results.append((field_to_object_pose, corner_world_pts))
-            errs.append(reproj_err)
-            debug_msgs.append(f"OBS {obs_idx}: SUCCESS err={reproj_err:.2f}")
+            if len(results) == 0:
+                debug_msgs.append("NO RESULTS")
+                return None, "\n".join(debug_msgs)
 
-        if len(results) == 0:
-            debug_msgs.append("NO RESULTS")
+            best_idx = int(numpy.argmin(errs))
+            best_pose, _ = results[best_idx]
+            best_err = float(errs[best_idx])
+
+            return (
+                CameraPoseObservation(
+                    tag_ids=[0],
+                    pose_0=best_pose,
+                    error_0=best_err,
+                    pose_1=None,
+                    error_1=None,
+                ),
+                "\n".join(debug_msgs),
+            )
+
+        except Exception as e_main:
+            # Catch anything that escaped
+            debug_msgs.append(f"UNHANDLED EXCEPTION IN solve_camera_pose: {e_main}")
+            try:
+                debug_msgs.append(traceback.format_exc())
+            except Exception:
+                debug_msgs.append("failed to format traceback")
+            # Return gracefully with debug messages so you can see what happened
             return None, "\n".join(debug_msgs)
 
-        best_idx = int(numpy.argmin(errs))
-        best_pose, _ = results[best_idx]
-        best_err = float(errs[best_idx])
-
-        return (
-            CameraPoseObservation(
-                tag_ids=[0],
-                pose_0=best_pose,
-                error_0=best_err,
-                pose_1=None,
-                error_1=None,
-            ),
-            "\n".join(debug_msgs),
-        )
 
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:
