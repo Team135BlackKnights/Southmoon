@@ -27,6 +27,9 @@ class CameraPoseEstimator:
         raise NotImplementedError
 
 class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
+    _nt_init_complete: bool = False
+    _nt_log_pub: ntcore.StringPublisher = None
+    
     def __init__(self, bumper_size_m: float = 0.8382, bottom_z: float = 0.0381, top_z: float = 0.1778):
         self.bumper_size_m = bumper_size_m
         self.bottom_z = bottom_z
@@ -35,22 +38,23 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def _nt_log(self, config_store: ConfigStore, msg: str) -> None:
         """Publish debug messages to NT without blocking the vision loop."""
         try:
-            if not hasattr(self, "_nt_ntable_cached"):
+            if not self._nt_init_complete:
                 try:
                     device_id = str(config_store.local_config.device_id)
                 except Exception:
                     device_id = "unknown_device"
-                nt_path = "/" + device_id + "/config/print_log"
+                nt_path = "/" + device_id + "/config"
                 try:
-                    self._nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
+                    nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
+                    self._nt_log_pub = nt_table.getStringTopic("print_obj_log").publish()
+                    self._nt_init_complete = True
                 except Exception:
-                    self._nt_table = None
-                self._nt_log_key = "objLog"
-                self._nt_ntable_cached = True
+                    self._nt_log_pub = None
+                    self._nt_init_complete = True
 
-            if self._nt_table is not None:
+            if self._nt_log_pub is not None:
                 try:
-                    self._nt_table.putString(self._nt_log_key, str(msg))
+                    self._nt_log_pub.set(str(msg))
                 except Exception:
                     pass
         except Exception:
