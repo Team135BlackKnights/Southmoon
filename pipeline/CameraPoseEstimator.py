@@ -109,7 +109,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA IO")
             return None, "\n".join(debug_msgs)
 
-        if config_store.remote_config.field_camera_pose == None:
+        if config_store.remote_config.field_camera_pose is None:
             debug_msgs.append("NA POSE")
             return None, "\n".join(debug_msgs)
 
@@ -119,14 +119,101 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         if len(cam_field_pose) != 7:
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
+
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
         R_camera_field = self._quat_to_rotmat(cam_quat)
-        
+
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
+        # Diagnostic forward vectors
+        try:
+            fwd_plusz = R_camera_field @ numpy.array([0.0, 0.0, 1.0])
+            fwd_minusz = R_camera_field @ numpy.array([0.0, 0.0, -1.0])
+            fwd_plusz_t = R_camera_field.T @ numpy.array([0.0, 0.0, 1.0])
+            debug_msgs.append(f"FWD (R @ [0,0,1]) = {fwd_plusz}")
+            debug_msgs.append(f"FWD (R @ [0,0,-1]) = {fwd_minusz}")
+            debug_msgs.append(f"FWD (R.T @ [0,0,1]) = {fwd_plusz_t}")
+        except Exception as e:
+            debug_msgs.append(f"FWD DIAG FAILED: {e}")
+
         results = []
         errs = []
+
+        # If no observations or not enough info, keep diagnostics and quit
+        # We'll determine the best ray transform mapping using the first observation's corner rays
+        def candidate_transforms_factory(R):
+            """
+            Return a list of candidate functions that map a camera ray d_cam -> d_field
+            and their textual names for debugging.
+            """
+            return [
+                (lambda d: R @ d, "R @ d_cam"),
+                (lambda d: R.T @ d, "R.T @ d_cam"),
+                (lambda d: (R.T @ (d * numpy.array([1.0, 1.0, -1.0]))), "R.T @ (d_cam with Z neg)"),
+            ]
+
+        # Also try a common quaternion permutation (shifted packing)
+        q_shifted = (cam_quat[3], cam_quat[0], cam_quat[1], cam_quat[2])
+        R_shifted = self._quat_to_rotmat(q_shifted)
+
+        # Build candidate list from both original R and shifted R
+        candidates = []
+        candidates.extend(candidate_transforms_factory(R_camera_field))
+        candidates.extend(candidate_transforms_factory(R_shifted))
+        candidate_names = [name for (_, name) in candidates]
+
+        debug_msgs.append(f"CANDIDATES: {[name for (_, name) in candidates]} (includes shifted quaternion)")
+
+        # Helper: evaluate candidate by counting how many corner rays point "into" scene (d_field.z < 0)
+        def score_candidate(candidate_fn, obs):
+            # use all corners in the observation (or up to 4) to compute a simple score
+            score = 0
+            total = 0
+            for uv in obs.corner_pixels:
+                u, v = float(uv[0]), float(uv[1])
+                uv1 = numpy.array([u, v, 1.0], dtype=float)
+                d_cam = Kinv @ uv1
+                d_field = candidate_fn(d_cam)
+                # consider it "good" if z < 0 and not near-parallel
+                if d_field[2] < -1e-6:
+                    score += 1
+                total += 1
+            return score, total
+
+        # Use the first valid observation to select the best candidate, if possible
+        first_obs = None
+        for obs in image_observations:
+            if obs.corner_pixels is not None and len(obs.corner_pixels) >= 1:
+                first_obs = obs
+                break
+
+        selected_candidate = None
+        selected_name = None
+        if first_obs is not None:
+            scores = []
+            for cand_fn, cand_name in candidates:
+                s, tot = score_candidate(cand_fn, first_obs)
+                scores.append((s, tot, cand_name, cand_fn))
+                debug_msgs.append(f"CAND SCORE {cand_name}: {s}/{tot} rays with z<0")
+            # pick candidate with maximum s (ties by prefer non-shifted first -> we maintain order)
+            scores_sorted = sorted(scores, key=lambda x: (x[0], x[1]), reverse=True)
+            best_s, best_tot, best_name, best_fn = scores_sorted[0]
+            if best_s > 0:
+                selected_candidate = best_fn
+                selected_name = best_name
+                debug_msgs.append(f"SELECTED CANDIDATE: {best_name} with {best_s}/{best_tot}")
+            else:
+                debug_msgs.append("NO CANDIDATE PRODUCED DOWNWARD RAYS (all d_field.z >= 0). Will keep diagnostics and try each obs individually.")
+        else:
+            debug_msgs.append("NO VALID OBS FOR CANDIDATE SELECTION")
+
+        # Now process each observation using the selected candidate (or default to R.T if none selected)
+        if selected_candidate is None:
+            # as a conservative default, choose R_camera_field.T (common convention)
+            selected_candidate = (lambda d: R_camera_field.T @ d)
+            selected_name = "default R.T @ d_cam"
+            debug_msgs.append("FALLBACK: using default R.T @ d_cam")
 
         for obs_idx, obs in enumerate(image_observations):
             if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
@@ -137,16 +224,25 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             corner_world_pts = []
             bad = False
-            debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
-            
+            debug_msgs.append(f"OBS {obs_idx}: INTERSECTING (using {selected_name})")
+
+            # canonical per-observation diagnostics
+            try:
+                uv_center = numpy.array([K[0, 2], K[1, 2], 1.0])
+                d_center_cam = Kinv @ uv_center
+                d_center_field = selected_candidate(d_center_cam)
+                debug_msgs.append(f"  CENTER d_cam={d_center_cam} -> d_field={d_center_field}")
+            except Exception as e:
+                debug_msgs.append(f"  CENTER DIAG FAILED: {e}")
+
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_field = R_camera_field.T @ d_cam
-                
-                debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
-                
+                d_field = selected_candidate(d_cam)
+
+                debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
+
                 P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
                 if P is None:
                     dz = d_field[2]
@@ -183,7 +279,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             except ZeroDivisionError:
                 debug_msgs.append(f"OBS {obs_idx}: ZERO DIV")
                 continue
-            
+
             R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])
 
             quat = self._rotmat_to_quat(R_obj_to_field)
@@ -192,11 +288,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
             )
             debug_msgs.append(f"OBS {obs_idx}: REPROG")
-            
+
             reproj_err = 0.0
             for i in range(4):
                 P_field = corner_world_pts[i]
-                R_field_camera = R_camera_field.T  # FIXED: Now this is correct
+                # The reprojection uses R_camera_field as the camera rotation from field->camera, so transpose yields field->camera
+                R_field_camera = R_camera_field.T
                 p_cam = R_field_camera @ (P_field - cam_pos_field)
                 if p_cam[2] <= 0:
                     reproj_err += 1e6
@@ -219,7 +316,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         best_idx = int(numpy.argmin(errs))
         best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
-        
+
         return (
             CameraPoseObservation(
                 tag_ids=[0],
@@ -230,6 +327,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             ),
             "\n".join(debug_msgs),
         )
+
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:
         pass
