@@ -40,12 +40,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     device_id = str(config_store.local_config.device_id)
                 except Exception:
                     device_id = "unknown_device"
-                nt_path = "/" + device_id + "/config/print_log_obj"
+                nt_path = "/" + device_id + "/config/print_log"
                 try:
                     self._nt_table = ntcore.NetworkTableInstance.getDefault().getTable(nt_path)
                 except Exception:
                     self._nt_table = None
-                self._nt_log_key = "log"
+                self._nt_log_key = "objLog"
                 self._nt_buffer = ""
                 self._nt_ntable_cached = True
 
@@ -132,6 +132,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return cam_pos_field + t * dir_field
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> Union[CameraPoseObservation, None]:
+        self._nt_log(config_store, "STARTING...")
         if len(image_observations) == 0:
             self._nt_log(config_store, "NA IO")
             return None
