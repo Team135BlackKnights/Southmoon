@@ -33,8 +33,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         self.top_z = top_z
 
     def _nt_log(self, config_store: ConfigStore, msg: str) -> None:
+        """Publish debug messages to NT without blocking the vision loop."""
         try:
-            # Lazily initialize cached NT table, key and buffer
             if not hasattr(self, "_nt_ntable_cached"):
                 try:
                     device_id = str(config_store.local_config.device_id)
@@ -46,20 +46,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 except Exception:
                     self._nt_table = None
                 self._nt_log_key = "objLog"
-                self._nt_buffer = ""
                 self._nt_ntable_cached = True
 
-            # Buffer like a file-like logger and flush on newline
-            self._nt_buffer += str(msg)
-            if "\n" in msg and self._nt_table is not None:
+            if self._nt_table is not None:
                 try:
-                    self._nt_table.putString(self._nt_log_key, self._nt_buffer)
+                    self._nt_table.putString(self._nt_log_key, str(msg))
                 except Exception:
-                    # swallow NT errors to avoid breaking vision pipeline
                     pass
-                self._nt_buffer = ""
         except Exception:
-            # if ntcore import or anything else fails, silently ignore
             pass
 
     def _unpack_pose3d(self, pose3d: List[float]):
