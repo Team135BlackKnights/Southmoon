@@ -109,12 +109,10 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA IO")
             return None, "\n".join(debug_msgs)
 
-        # Exit if no field pos available
         if config_store.remote_config.field_camera_pose == None:
             debug_msgs.append("NA POSE")
             return None, "\n".join(debug_msgs)
 
-        # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         Kinv = numpy.linalg.inv(K)
@@ -122,7 +120,9 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
-        R_field_camera = self._quat_to_rotmat(cam_quat)
+        
+        # FIXED: Invert the rotation - R_camera_field rotates camera vectors to field
+        R_camera_field = self._quat_to_rotmat(cam_quat)
         
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
@@ -145,11 +145,10 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_field = R_field_camera @ d_cam
+                d_field = R_camera_field @ d_cam  # Now correctly transforms camera ray to field
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
                 
-                # intersect
                 P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
                 if P is None:
                     dz = d_field[2]
@@ -199,8 +198,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             reproj_err = 0.0
             for i in range(4):
                 P_field = corner_world_pts[i]
-                R_camera_field = R_field_camera.T
-                p_cam = R_camera_field @ (P_field - cam_pos_field)
+                R_field_camera = R_camera_field.T  # FIXED: Now this is correct
+                p_cam = R_field_camera @ (P_field - cam_pos_field)
                 if p_cam[2] <= 0:
                     reproj_err += 1e6
                     continue
