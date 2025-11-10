@@ -98,6 +98,7 @@ def objdetect_worker(
             image = frame_buf.copy()            
 
             observations = detector.detect(image, config)
+            print(f"[ObjDetectWorker] Detected {len(observations)} objects")
             pose_obs = bumper_pose_estimator.solve_camera_pose(observations, config)
             pose_serial = _serialize_pose(pose_obs)
 
