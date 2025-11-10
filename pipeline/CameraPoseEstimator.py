@@ -96,9 +96,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         if abs(dz) < eps:
             return None  # parallel, no intersection
         t = (plane_z - cam_pos_field[2]) / dz
-        # Accept negative t: allow rays to intersect planes below camera
         P = cam_pos_field + t * dir_field
-        return P
+        return P  # always return, even if t < 0
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
         debug_msgs = []
@@ -148,11 +147,11 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
 
                 P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
-                # Skip points that are behind camera but still consider others
-                if (P - cam_pos_field) @ d_field < 0:
-                    debug_msgs.append(f"  C{corner_idx}: BEHIND CAM, skipping")
+                if P is None:
+                    debug_msgs.append(f"  C{corner_idx}: PARALLEL, skipping")
                     continue
 
+                # No longer skip points just because t < 0
                 corner_world_pts.append(P)
                 debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
 
