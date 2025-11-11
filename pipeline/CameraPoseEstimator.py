@@ -143,9 +143,9 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 #I have already disabled this temporarily, and it DOES work, doesn't crash, and returns good debug info
                 #return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
                 u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, -1.0], dtype=float)
+                uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                #d_cam /= numpy.linalg.norm(d_cam)  # normalize
+                d_cam /= numpy.linalg.norm(d_cam)  # normalize
                 d_field = R_camera_field @ d_cam  # camera -> field
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
