@@ -222,7 +222,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
         debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.2f}")
-        return None, "\n".join(debug_msgs)
         return (
             CameraPoseObservation(
                 tag_ids=[0],
