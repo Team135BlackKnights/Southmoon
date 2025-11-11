@@ -126,7 +126,12 @@ class NTOutputPublisher(OutputPublisher):
         for angle in max_confidence_observation.corner_angles.ravel():
             observation_data.append(angle)
             
-        print("ObjDetect Observation Data:", observation_data)
+        #print out the type
+        print("Pose type:", type(pose))
+        #print out all available keys
+        if isinstance(pose, dict):
+            print("Pose keys:", pose.keys())
+        
         observation_data.append(-1)  # Indicate pose follows
         # Pose can be a CameraPoseObservation or a serialized dict produced by worker
         if (pose is None):
