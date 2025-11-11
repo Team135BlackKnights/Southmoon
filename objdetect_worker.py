@@ -56,11 +56,10 @@ def objdetect_worker(
             return None, debug
         try:
             #pose is a CameraPoseObservation, cast it
-            debug += "\nSerializing pose."
-            return None, debug + "\nPose serialization not implemented."
+            
             p0_t = pose.pose_0.translation()
             p0_q = pose.pose_0.rotation().getQuaternion()
-            
+            return None,debug + "\nPose serialization skipped temporarily."
             out = {
                 "tag_ids": pose.tag_ids,
                 "error_0": pose.error_0,
@@ -71,15 +70,6 @@ def objdetect_worker(
                 "error_1": None,
                 "pose_1": None,
             }
-            if pose.error_1 is not None and pose.pose_1 is not None:
-                debug += "\nSerializing second pose."
-                p1_t = pose.pose_1.translation()
-                p1_q = pose.pose_1.rotation().getQuaternion()
-                out["error_1"] = pose.error_1
-                out["pose_1"] = {
-                    "t": (p1_t.X(), p1_t.Y(), p1_t.Z()),
-                    "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z()),
-                }
             return out, debug
         except Exception:
             return None, debug + "\nPose serialization failed."
@@ -106,11 +96,7 @@ def objdetect_worker(
 
             observations = detector.detect(image, config)
             pose_obs,debug = bumper_pose_estimator.solve_camera_pose(observations, config)
-            try:
-                pose_serial,debug = _serialize_pose(pose_obs,debug)
-            except Exception as e:
-                pose_serial = None
-                debug += f"\nPose serialization exception: {e}"
+            pose_serial,debug = _serialize_pose(pose_obs,debug)
             # Send results to main process
             try:
                 q_out.put((timestamp, observations, pose_serial,debug), block=False)
