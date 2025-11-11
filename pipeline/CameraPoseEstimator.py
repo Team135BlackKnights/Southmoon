@@ -140,15 +140,16 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
             
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
-                
+                #I have already disabled this temporarily, and it DOES work, doesn't crash, and returns good debug info
+                #return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, -1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_cam /= numpy.linalg.norm(d_cam)  # normalize
+                #d_cam /= numpy.linalg.norm(d_cam)  # normalize
                 d_field = R_camera_field @ d_cam  # camera -> field
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
-                return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
+                return None, "\n".join(debug_msgs)  # CRASHING BEFORE
                 # intersect
                 P, t_param = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
                 if P is None:
