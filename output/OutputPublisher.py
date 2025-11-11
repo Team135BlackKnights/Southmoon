@@ -159,13 +159,6 @@ class NTOutputPublisher(OutputPublisher):
                 t0 = p0.get("t", (0.0, 0.0, 0.0))
                 q0 = p0.get("q", (1.0, 0.0, 0.0, 0.0))
                 observation_data.extend([t0[0], t0[1], t0[2], q0[0], q0[1], q0[2], q0[3]])
-                observation_data.append(pose.get("error_1", 0.0))
-                p1 = pose.get("pose_1", None)
-                if p1:
-                    t1 = p1.get("t", (0.0, 0.0, 0.0))
-                    q1 = p1.get("q", (1.0, 0.0, 0.0, 0.0))
-                    observation_data.extend([t1[0], t1[1], t1[2], q1[0], q1[1], q1[2], q1[3]])
-                else:
-                    observation_data.extend([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+                observation_data.extend([0.0,0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         
         self._objdetect_observations_pub.set(observation_data, math.floor(timestamp * 1000000))
