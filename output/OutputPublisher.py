@@ -107,7 +107,7 @@ class NTOutputPublisher(OutputPublisher):
         self._objdetect_fps_pub.set(fps)
 
     def send_objdetect_observation(
-        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[CameraPoseObservation, dict, None]
+        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[dict, None]
     ) -> None:
         self._check_init(config_store)
 
@@ -126,7 +126,7 @@ class NTOutputPublisher(OutputPublisher):
         for angle in max_confidence_observation.corner_angles.ravel():
             observation_data.append(angle)
             
-
+        print("ObjDetect Observation Data:", observation_data)
         observation_data.append(-1)  # Indicate pose follows
         # Pose can be a CameraPoseObservation or a serialized dict produced by worker
         if (pose is None):
@@ -148,6 +148,7 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(0)
         else:
             if isinstance(pose, dict[str, any]):
+                print("Serialized Pose Data:", pose)
                 observation_data.append(pose.get("error_0", 0.0))
                 p0 = pose.get("pose_0", {})
                 t0 = p0.get("t", (0.0, 0.0, 0.0))
@@ -161,29 +162,5 @@ class NTOutputPublisher(OutputPublisher):
                     observation_data.extend([t1[0], t1[1], t1[2], q1[0], q1[1], q1[2], q1[3]])
                 else:
                     observation_data.extend([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
-            else:
-                try:
-                    pose: CameraPoseObservation
-                except:
-                    pose = None
-                if pose is None:
-                    pose = CameraPoseObservation()
-                observation_data.append(pose.error_0)
-                observation_data.append(pose.pose_0.translation().X())
-                observation_data.append(pose.pose_0.translation().Y())
-                observation_data.append(pose.pose_0.translation().Z())
-                observation_data.append(pose.pose_0.rotation().getQuaternion().W())
-                observation_data.append(pose.pose_0.rotation().getQuaternion().X())
-                observation_data.append(pose.pose_0.rotation().getQuaternion().Y())
-                observation_data.append(pose.pose_0.rotation().getQuaternion().Z())
-                observation_data.append(pose.error_1)
-                observation_data.append(pose.pose_1.translation().X())
-                observation_data.append(pose.pose_1.translation().Y())
-                observation_data.append(pose.pose_1.translation().Z())
-                observation_data.append(pose.pose_1.rotation().getQuaternion().W())
-                observation_data.append(pose.pose_1.rotation().getQuaternion().X())
-                observation_data.append(pose.pose_1.rotation().getQuaternion().Y())
-                observation_data.append(pose.pose_1.rotation().getQuaternion().Z())
-
         
         self._objdetect_observations_pub.set(observation_data, math.floor(timestamp * 1000000))
