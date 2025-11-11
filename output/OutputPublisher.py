@@ -147,7 +147,7 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(0)
             observation_data.append(0)
         else:
-            if isinstance(pose, dict):
+            if isinstance(pose, dict[str, any]):
                 observation_data.append(pose.get("error_0", 0.0))
                 p0 = pose.get("pose_0", {})
                 t0 = p0.get("t", (0.0, 0.0, 0.0))

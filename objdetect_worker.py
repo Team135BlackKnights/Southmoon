@@ -18,6 +18,7 @@ from output.StreamServer import MjpegServer
 from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
 from pipeline.ObjectDetector import CoreMLObjectDetector
 from vision_types import ObjDetectObservation
+from vision_types import CameraPoseObservation as CameraPoseObservationType
 
 
 def objdetect_worker(
@@ -48,15 +49,25 @@ def objdetect_worker(
     stream_server.start(server_port)
     last_sent_ts = 0.0
 
-    def _serialize_pose(pose):
+    def _serialize_pose(pose, debug: str) -> Tuple[dict, str]:
         """Convert pose object into a serializable dict for IPC."""
         if pose is None:
-            return None
+            debug += "\nPose is None; returning None."
+            return None, debug
         try:
+            #pose is a CameraPoseObservation, cast it
+            # Ensure we have a CameraPoseObservation instance (some callers may return a tuple/list)
+            if not isinstance(pose, CameraPoseObservationType):
+                try:
+                    pose = CameraPoseObservationType(*pose)
+                except Exception:
+                    # If construction fails, assume pose already exposes the necessary attributes
+                    pass
             p0_t = pose.pose_0.translation()
             p0_q = pose.pose_0.rotation().getQuaternion()
+            
             out = {
-                "tag_ids": list(pose.tag_ids),
+                "tag_ids": pose.tag_ids,
                 "error_0": pose.error_0,
                 "pose_0": {
                     "t": (p0_t.X(), p0_t.Y(), p0_t.Z()),
@@ -66,6 +77,7 @@ def objdetect_worker(
                 "pose_1": None,
             }
             if pose.error_1 is not None and pose.pose_1 is not None:
+                debug += "\nSerializing second pose."
                 p1_t = pose.pose_1.translation()
                 p1_q = pose.pose_1.rotation().getQuaternion()
                 out["error_1"] = pose.error_1
@@ -73,9 +85,9 @@ def objdetect_worker(
                     "t": (p1_t.X(), p1_t.Y(), p1_t.Z()),
                     "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z()),
                 }
-            return out
+            return out, debug
         except Exception:
-            return None
+            return None, debug + "\nPose serialization failed."
 
     while True:
         try:
@@ -99,7 +111,7 @@ def objdetect_worker(
 
             observations = detector.detect(image, config)
             pose_obs,debug = bumper_pose_estimator.solve_camera_pose(observations, config)
-            pose_serial = _serialize_pose(pose_obs)
+            pose_serial,debug = _serialize_pose(pose_obs,debug)
 
             # Send results to main process
             try:
