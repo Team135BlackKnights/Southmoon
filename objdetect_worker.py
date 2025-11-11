@@ -9,7 +9,7 @@ import queue
 import traceback
 import numpy as np
 from multiprocessing import shared_memory
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import cv2
 from config.config import ConfigStore
@@ -49,20 +49,15 @@ def objdetect_worker(
     stream_server.start(server_port)
     last_sent_ts = 0.0
 
-    def _serialize_pose(pose, debug: str) -> Tuple[dict, str]:
+    def _serialize_pose(pose: Union[CameraPoseObservationType, None], debug: str) -> Tuple[dict, str]:
         """Convert pose object into a serializable dict for IPC."""
         if pose is None:
             debug += "\nPose is None; returning None."
             return None, debug
         try:
             #pose is a CameraPoseObservation, cast it
-            # Ensure we have a CameraPoseObservation instance (some callers may return a tuple/list)
-            if not isinstance(pose, CameraPoseObservationType):
-                try:
-                    pose = CameraPoseObservationType(*pose)
-                except Exception:
-                    # If construction fails, assume pose already exposes the necessary attributes
-                    pass
+            debug += "\nSerializing pose."
+            return None, debug + "\nPose serialization not implemented."
             p0_t = pose.pose_0.translation()
             p0_q = pose.pose_0.rotation().getQuaternion()
             

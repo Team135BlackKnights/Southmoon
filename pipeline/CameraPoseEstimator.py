@@ -101,7 +101,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         Ps = cam_pos_field + t * dir_field
         return Ps, t
 
-    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
+    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple [Union[CameraPoseObservation, None], str]:
         debug_msgs = []
 
         if len(image_observations) == 0:
@@ -224,7 +224,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.2f}")
         return (
             CameraPoseObservation(
-                tag_ids=[0],
+                tag_ids=list(range(len(image_observations))),
                 pose_0=best_pose,
                 error_0=best_err,
                 pose_1=None,
