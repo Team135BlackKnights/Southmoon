@@ -128,7 +128,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
         results = []
         errs = []
-
+        return None, "\n".join(debug_msgs)
         for obs_idx, obs in enumerate(image_observations):
             if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
                 debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
