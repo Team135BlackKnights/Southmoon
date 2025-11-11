@@ -116,7 +116,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
-        Kinv = numpy.linalg.inv(K)
+        dist_coeffs = config_store.local_config.distortion_coefficients
+        dist = numpy.array(dist_coeffs, dtype=float) if dist_coeffs is not None else None
         if len(cam_field_pose) != 7:
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
@@ -135,6 +136,23 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
+        # Pre-compute bumper corner model in the bumper object frame (origin at bottom center)
+        half_width = self.bumper_size_m / 2.0
+        bumper_height = self.top_z - self.bottom_z
+        object_points_wpilib = numpy.array(
+            [
+                [0.0, half_width, bumper_height],   # top-left
+                [0.0, -half_width, bumper_height],  # top-right
+                [0.0, half_width, 0.0],             # bottom-left
+                [0.0, -half_width, 0.0],            # bottom-right
+            ],
+            dtype=float,
+        )
+        object_points_cv = numpy.array(
+            [wpilibTranslationToOpenCv(Translation3d(*pt)) for pt in object_points_wpilib],
+            dtype=float,
+        )
+
         results = []
         errs = []
         
@@ -142,102 +160,65 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
                 debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
                 continue
+            image_points = numpy.array(obs.corner_pixels, dtype=float)
 
-            corner_zs = [self.top_z, self.top_z, self.bottom_z, self.bottom_z]
-
-            corner_world_pts = []
-            debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
-            
-            for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
-                u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, 1.0], dtype=float)
-                d_cam = Kinv @ uv1
-                d_cam /= numpy.linalg.norm(d_cam)  # normalize
-                debug_msgs.append(f"  C{corner_idx}: d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f})")
-                d_cam_wpi = CV_TO_WPI @ d_cam
-                d_field = R_camera_field_wpi @ d_cam_wpi  # camera -> field (WPILib frame)
-                
-                debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
-                # intersect
-                P, t_param = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
-                if P is None:
-                    debug_msgs.append(f"  C{corner_idx}: PARALLEL, skip")
-                    continue
-                if t_param is not None and t_param <= 0:
-                    debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t_param:.3f})")
-                    
-                  
-                corner_world_pts.append(P)
-                debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
-
-            if len(corner_world_pts) < 2:
-                debug_msgs.append(f"OBS {obs_idx}: FAILED INTERSECTION")
-                continue
-            
-            corner_world_pts = numpy.vstack(corner_world_pts)
-            centroid = numpy.mean(corner_world_pts, axis=0)
-
-            v_x = corner_world_pts[1] - corner_world_pts[0]
-            v_y = corner_world_pts[-1] - corner_world_pts[0]
-
-            def norm(v):
-                n = numpy.linalg.norm(v)
-                return v / n if n > 1e-9 else v
-
-            debug_msgs.append(f"OBS {obs_idx}: NORMING")
             try:
-                x_axis = norm(v_x)
-                y_axis = norm(v_y - numpy.dot(v_y, x_axis) * x_axis)
-                z_axis = numpy.cross(x_axis, y_axis)
-                z_axis = norm(z_axis)
-            except ZeroDivisionError:
-                debug_msgs.append(f"OBS {obs_idx}: ZERO DIV")
+                solve_ok, rvecs, tvecs, reproj = cv2.solvePnPGeneric(
+                    object_points_cv,
+                    image_points,
+                    K,
+                    dist,
+                    flags=cv2.SOLVEPNP_IPPE,
+                )
+            except cv2.error as e:
+                debug_msgs.append(f"OBS {obs_idx}: solvePnP ERR {e}")
                 continue
-            
-            R_obj_to_field = numpy.column_stack([x_axis, y_axis, z_axis])
 
-            quat = self._rotmat_to_quat(R_obj_to_field)
-            field_to_object_pose = Pose3d(
-                Translation3d(centroid[0], centroid[1], centroid[2]),
-                Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
-            )
-            debug_msgs.append(f"OBS {obs_idx}: REPROG")
-            
-            reproj_err = 0.0
-            for i in range(4):
-                P_field = corner_world_pts[i]
-                v_field = P_field - cam_pos_field
-                v_cam_wpi = R_field_camera_wpi @ v_field
-                p_cam = WPI_TO_CV @ v_cam_wpi
-                if p_cam[2] <= 1e-9:
-                    reproj_err += 1e6
-                    continue
-                proj = K @ (p_cam / p_cam[2])
-                u_proj, v_proj = proj[0], proj[1]
-                du = u_proj - float(obs.corner_pixels[i][0])
-                dv = v_proj - float(obs.corner_pixels[i][1])
-                reproj_err += math.hypot(du, dv)
-            reproj_err /= len(corner_world_pts)
+            if not solve_ok or rvecs is None or len(rvecs) == 0:
+                debug_msgs.append(f"OBS {obs_idx}: NO SOL")
+                continue
 
-            results.append((field_to_object_pose, corner_world_pts))
-            errs.append(reproj_err)
-            debug_msgs.append(f"OBS {obs_idx}: SUCCESS err={reproj_err:.2f}")
+            debug_msgs.append(f"OBS {obs_idx}: SOLUTIONS {len(rvecs)}")
+
+            for sol_idx, (rvec, tvec, err_val) in enumerate(zip(rvecs, tvecs, reproj)):
+                R_oc_cv, _ = cv2.Rodrigues(rvec)
+                R_oc_wpi = CV_TO_WPI @ R_oc_cv @ WPI_TO_CV
+                t_co_wpi = CV_TO_WPI @ tvec.reshape(3)
+
+                R_of_wpi = R_camera_field_wpi @ R_oc_wpi
+                quat = self._rotmat_to_quat(R_of_wpi)
+
+                object_pos_field = cam_pos_field + R_camera_field_wpi @ t_co_wpi
+                field_to_object_pose = Pose3d(
+                    Translation3d(*object_pos_field),
+                    Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
+                )
+
+                distance = float(numpy.linalg.norm(t_co_wpi))
+                roll = field_to_object_pose.rotation().X()
+                pitch = field_to_object_pose.rotation().Y()
+                yaw = field_to_object_pose.rotation().Z()
+                err_scalar = float(err_val[0] if numpy.ndim(err_val) else err_val)
+
+                debug_msgs.append(
+                    f"  SOL {sol_idx}: ERR={err_scalar:.2f}px DIST={distance:.3f}m RPY=({roll:.3f},{pitch:.3f},{yaw:.3f})"
+                )
+
+                results.append((field_to_object_pose, err_scalar, obs.obj_class if hasattr(obs, "obj_class") else obs_idx))
+                errs.append(err_scalar)
+
         if not results:
-            debug_msgs.append("NO RESULTS")
-            return None, "\n".join(debug_msgs)
-        if len(results) == 0:
             debug_msgs.append("NO RESULTS")
             return None, "\n".join(debug_msgs)
 
         best_idx = int(numpy.argmin(errs))
-        best_pose, _ = results[best_idx]
-        best_err = float(errs[best_idx])
+        best_pose, best_err, best_id = results[best_idx]
         debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.2f}")
         return (
             CameraPoseObservation(
-                tag_ids=list(range(len(image_observations))),
+                tag_ids=[best_id],
                 pose_0=best_pose,
-                error_0=best_err,
+                error_0=float(best_err),
                 pose_1=None,
                 error_1=None,
             ),
