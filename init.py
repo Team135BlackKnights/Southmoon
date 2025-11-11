@@ -354,6 +354,7 @@ if __name__ == "__main__":
                 except Exception as e:
                     print("[WARN] Object detection IPC read failed:", e)
                 else:
+                    print("[ObjDetect] Received", len(observations), "observations. Has pose:", pose is not None)
                     output_publisher.send_objdetect_observation(config, timestamp_out, observations, pose)
                     if (debug != ""):
                         print("[ObjDetect]:", debug)

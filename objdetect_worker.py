@@ -59,7 +59,6 @@ def objdetect_worker(
             
             p0_t = pose.pose_0.translation()
             p0_q = pose.pose_0.rotation().getQuaternion()
-            return None,debug + "\nPose serialization skipped temporarily."
             out = {
                 "tag_ids": pose.tag_ids,
                 "error_0": pose.error_0,
