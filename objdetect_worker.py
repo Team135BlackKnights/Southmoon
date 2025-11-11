@@ -111,8 +111,11 @@ def objdetect_worker(
 
             observations = detector.detect(image, config)
             pose_obs,debug = bumper_pose_estimator.solve_camera_pose(observations, config)
-            pose_serial,debug = _serialize_pose(pose_obs,debug)
-
+            try:
+                pose_serial,debug = _serialize_pose(pose_obs,debug)
+            except Exception as e:
+                pose_serial = None
+                debug += f"\nPose serialization exception: {e}"
             # Send results to main process
             try:
                 q_out.put((timestamp, observations, pose_serial,debug), block=False)
