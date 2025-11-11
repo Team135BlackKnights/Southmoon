@@ -94,26 +94,11 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def _intersect_ray_with_z(self, cam_pos_field, dir_field, plane_z, eps=1e-8):
         dz = dir_field[2]
         if abs(dz) < eps:
-            return None, dir_field, False  # parallel, no intersection
+            return None, None
 
-        delta_z = plane_z - cam_pos_field[2]
-        t = delta_z / dz
-        flipped = False
-
-        if t < 0:
-            # Camera is looking away from the plane; walk the ray in the opposite direction instead.
-            dir_field = -dir_field
-            dz = dir_field[2]
-            if abs(dz) < eps:
-                return None, dir_field, True
-            t = delta_z / dz
-            flipped = True
-
-        if t < 0:
-            return None, dir_field, flipped
-
+        t = (plane_z - cam_pos_field[2]) / dz
         Ps = cam_pos_field + t * dir_field
-        return Ps, dir_field, flipped
+        return Ps, t
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
         debug_msgs = []
@@ -155,7 +140,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
                 u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, 1.0], dtype=float)
+                uv1 = numpy.array([u, v, -1.0], dtype=float)
                 d_cam = Kinv @ uv1
                 d_cam /= numpy.linalg.norm(d_cam)  # normalize
                 d_field = R_camera_field @ d_cam  # camera -> field
@@ -164,15 +149,13 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})"
                 )
 
-                Ps, used_dir, flipped = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
+                Ps, t_param = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
                 if Ps is None:
-                    debug_msgs.append(f"  C{corner_idx}: PARALLEL/NO HIT, skipping")
+                    debug_msgs.append(f"  C{corner_idx}: PARALLEL, skipping")
                     continue
 
-                if flipped:
-                    debug_msgs.append(
-                        f"  C{corner_idx}: FLIPPED dir -> ({used_dir[0]:.3f},{used_dir[1]:.3f},{used_dir[2]:.3f})"
-                    )
+                if t_param is not None and t_param < 0:
+                    debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t_param:.2f})")
 
                 corner_world_pts.append(Ps)
                 debug_msgs.append(f"  C{corner_idx}: OK P=({Ps[0]:.3f},{Ps[1]:.3f},{Ps[2]:.3f})")
