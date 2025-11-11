@@ -95,12 +95,11 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def _intersect_ray_with_z(self, cam_pos_field, dir_field, plane_z, eps=1e-8):
         dz = dir_field[2]
         if abs(dz) < eps:
-            return None  # parallel, cooked
+            return None, None
+
         t = (plane_z - cam_pos_field[2]) / dz
-        if t <= 0:
-            # veryyyy likely behind camera, aka... tf?
-            return None
-        return cam_pos_field + t * dir_field
+        Ps = cam_pos_field + t * dir_field
+        return Ps, t
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple:
         debug_msgs = []
@@ -138,32 +137,30 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             corner_zs = [self.top_z, self.top_z, self.bottom_z, self.bottom_z]
 
             corner_world_pts = []
-            bad = False
             debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
             
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
                 u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, 1.0], dtype=float)
+                uv1 = numpy.array([u, v, -1.0], dtype=float)
                 d_cam = Kinv @ uv1
-                d_field = R_field_camera @ d_cam
+                d_cam /= numpy.linalg.norm(d_cam)  # normalize
+                d_field = R_camera_field @ d_cam  # camera -> field
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
                 
                 # intersect
-                P = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
+                P, t_param = self._intersect_ray_with_z(cam_pos_field, d_field, plane_z)
                 if P is None:
-                    dz = d_field[2]
-                    if abs(dz) < 1e-8:
-                        debug_msgs.append(f"  C{corner_idx}: PARALLEL (dz={dz:.6f})")
-                    else:
-                        t = (plane_z - cam_pos_field[2]) / dz
-                        debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t:.3f})")
-                    bad = True
-                    break
+                    debug_msgs.append(f"  C{corner_idx}: PARALLEL, skip")
+                    continue
+                if t_param is not None and t_param <= 0:
+                    debug_msgs.append(f"  C{corner_idx}: BEHIND CAM (t={t_param:.3f})")
+                    
+                  
                 corner_world_pts.append(P)
                 debug_msgs.append(f"  C{corner_idx}: OK P=({P[0]:.3f},{P[1]:.3f},{P[2]:.3f})")
 
-            if bad:
+            if len(corner_world_pts) < 2:
                 debug_msgs.append(f"OBS {obs_idx}: FAILED INTERSECTION")
                 continue
 
@@ -171,7 +168,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             centroid = numpy.mean(corner_world_pts, axis=0)
 
             v_x = corner_world_pts[1] - corner_world_pts[0]
-            v_y = corner_world_pts[3] - corner_world_pts[0]
+            v_y = corner_world_pts[-1] - corner_world_pts[0]
 
             def norm(v):
                 n = numpy.linalg.norm(v)
@@ -201,7 +198,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 P_field = corner_world_pts[i]
                 R_camera_field = R_field_camera.T
                 p_cam = R_camera_field @ (P_field - cam_pos_field)
-                if p_cam[2] <= 0:
+                if p_cam[2] <= 1e-9:
                     reproj_err += 1e6
                     continue
                 proj = K @ (p_cam / p_cam[2])
@@ -209,12 +206,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 du = u_proj - float(obs.corner_pixels[i][0])
                 dv = v_proj - float(obs.corner_pixels[i][1])
                 reproj_err += math.hypot(du, dv)
-            reproj_err /= 4.0
+            reproj_err /= len(corner_world_pts)
 
             results.append((field_to_object_pose, corner_world_pts))
             errs.append(reproj_err)
             debug_msgs.append(f"OBS {obs_idx}: SUCCESS err={reproj_err:.2f}")
-
+        if not results:
+            debug_msgs.append("NO RESULTS")
+            return None, "\n".join(debug_msgs)
         if len(results) == 0:
             debug_msgs.append("NO RESULTS")
             return None, "\n".join(debug_msgs)
@@ -222,7 +221,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         best_idx = int(numpy.argmin(errs))
         best_pose, _ = results[best_idx]
         best_err = float(errs[best_idx])
-        
+        debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.2f}")
+        return None, "\n".join(debug_msgs)
         return (
             CameraPoseObservation(
                 tag_ids=[0],
