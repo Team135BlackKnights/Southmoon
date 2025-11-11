@@ -130,8 +130,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         errs = []
         
         for obs_idx, obs in enumerate(image_observations):
-            debug_msgs.append(f"OBS {obs_idx}: PROCESSING")
-            return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
             if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
                 debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
                 continue
@@ -142,6 +140,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append(f"OBS {obs_idx}: INTERSECTING")
             
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
+                return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
                 u, v = float(uv[0]), float(uv[1])
                 uv1 = numpy.array([u, v, -1.0], dtype=float)
                 d_cam = Kinv @ uv1
