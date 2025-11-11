@@ -145,8 +145,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 d_cam = Kinv @ uv1
                 d_cam /= numpy.linalg.norm(d_cam)  # normalize
                 debug_msgs.append(f"  C{corner_idx}: d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f})")
-                return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
-                d_field = R_camera_field @ d_cam  # camera -> field
+                d_field = R_field_camera.T @ d_cam  # camera -> field
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
                 # intersect
