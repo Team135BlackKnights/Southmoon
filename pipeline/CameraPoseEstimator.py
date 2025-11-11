@@ -121,8 +121,17 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
-        R_field_camera = self._quat_to_rotmat(cam_quat)
-        
+        WPI_TO_CV = numpy.array(
+            [[0, -1, 0],
+             [0,  0, -1],
+             [1,  0, 0]],
+            dtype=float,
+        )
+        CV_TO_WPI = WPI_TO_CV.T
+
+        # NB: field_camera_pose publishes camera->field rotation in WPILib frame.
+        R_camera_field_wpi = self._quat_to_rotmat(cam_quat)
+        R_field_camera_wpi = R_camera_field_wpi.T
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
@@ -141,11 +150,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             
             for corner_idx, (uv, plane_z) in enumerate(zip(obs.corner_pixels, corner_zs)):
                 u, v = float(uv[0]), float(uv[1])
-                uv1 = numpy.array([u, v, -1.0], dtype=float)
+                uv1 = numpy.array([u, v, 1.0], dtype=float)
                 d_cam = Kinv @ uv1
                 d_cam /= numpy.linalg.norm(d_cam)  # normalize
                 debug_msgs.append(f"  C{corner_idx}: d_cam=({d_cam[0]:.3f},{d_cam[1]:.3f},{d_cam[2]:.3f})")
-                d_field = R_field_camera.T @ d_cam  # camera -> field
+                d_cam_wpi = CV_TO_WPI @ d_cam
+                d_field = R_camera_field_wpi @ d_cam_wpi  # camera -> field (WPILib frame)
                 
                 debug_msgs.append(f"  C{corner_idx}: uv=({u:.1f},{v:.1f}) d_field=({d_field[0]:.3f},{d_field[1]:.3f},{d_field[2]:.3f})")
                 # intersect
@@ -196,8 +206,9 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             reproj_err = 0.0
             for i in range(4):
                 P_field = corner_world_pts[i]
-                R_camera_field = R_field_camera.T
-                p_cam = R_camera_field @ (P_field - cam_pos_field)
+                v_field = P_field - cam_pos_field
+                v_cam_wpi = R_field_camera_wpi @ v_field
+                p_cam = WPI_TO_CV @ v_cam_wpi
                 if p_cam[2] <= 1e-9:
                     reproj_err += 1e6
                     continue
