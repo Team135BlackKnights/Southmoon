@@ -130,6 +130,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         errs = []
         
         for obs_idx, obs in enumerate(image_observations):
+            debug_msgs.append(f"OBS {obs_idx}: PROCESSING")
+            return None, "\n".join(debug_msgs)  # TEMPORARY DISABLE
             if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
                 debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
                 continue
@@ -163,8 +165,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             if len(corner_world_pts) < 2:
                 debug_msgs.append(f"OBS {obs_idx}: FAILED INTERSECTION")
                 continue
-            debug_msgs.append(f"OBS {obs_idx}: COMPUTING POSE")
-            return None, "\n".join(debug_msgs)
+            
             corner_world_pts = numpy.vstack(corner_world_pts)
             centroid = numpy.mean(corner_world_pts, axis=0)
 
