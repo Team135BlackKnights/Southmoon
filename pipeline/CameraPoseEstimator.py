@@ -33,10 +33,6 @@ from typing import List, Union
 import cv2
 import numpy
 
-# Assuming these are available in your environment (you used them already)
-# from wpilib.geometry import Pose3d, Translation3d, Rotation3d, Quaternion
-# and your helper wpilibTranslationToOpenCv(Translation3d) function
-
 class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self, bumper_size_m: float = 0.8382, bottom_z: float = 0.0, top_z: float = 0.1778):
         self.bumper_size_m = bumper_size_m
@@ -100,19 +96,14 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             qz = 0.25 * S
         return (qw, qx, qy, qz)
 
-    # ------------ geometry helpers ------------
+    # ---------------- geometry helpers ----------------
 
     def _undistort_normalized(self, pts_px, K, dist):
-        """
-        Convert Nx2 pixel points -> Nx2 normalized image points using cv2.undistortPoints.
-        Normalized coords are such that direction = [x, y, 1] in camera frame.
-        """
         pts = numpy.array(pts_px, dtype=float).reshape(-1, 1, 2)
         und = cv2.undistortPoints(pts, K, dist, P=None)
         return und.reshape(-1, 2)
 
     def _ray_dir_camera_from_normalized(self, norm_xy):
-        # direction in camera coords (not normalized): [x, y, 1]
         norm_xy = numpy.array(norm_xy, dtype=float)
         return numpy.column_stack((norm_xy[:, 0], norm_xy[:, 1], numpy.ones(len(norm_xy), dtype=float)))
 
@@ -125,10 +116,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return P, t
 
     def _umeyama_rigid_transform(self, src_pts, dst_pts):
-        """
-        Solves for R, t such that dst ~ R * src + t (3xN).
-        Returns R (3x3), t (3,).
-        """
         src = numpy.array(src_pts, dtype=float)
         dst = numpy.array(dst_pts, dtype=float)
         assert src.shape == dst.shape and src.shape[0] >= 1
@@ -149,12 +136,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return R, t
 
     def _two_point_xy_fit(self, model_pts, observed_pts):
-        """
-        model_pts, observed_pts: shape (2,3)
-        Solve for rotation about Z and XY translation that best maps model->observed in XY.
-        Returns R (3x3), t (3,)
-        """
-        m = numpy.array(model_pts, dtype=float)[:2, :2]   # 2x2 (XY)
+        m = numpy.array(model_pts, dtype=float)[:2, :2]
         o = numpy.array(observed_pts, dtype=float)[:2, :2]
         mm = m.mean(axis=0)
         oo = o.mean(axis=0)
@@ -175,7 +157,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                          [0.0,            0.0,           1.0]])
         return R, t
 
-    # ------------ main solver ------------
+    # ---------------- main solver ----------------
 
     def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple[Union[CameraPoseObservation, None], str]:
         debug_msgs = []
@@ -188,16 +170,10 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             debug_msgs.append("NA POSE")
             return None, "\n".join(debug_msgs)
 
-        # camera pose in field frame (field -> camera)
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         dist_coeffs = config_store.local_config.distortion_coefficients
-        # make deterministic distortion array
-        if dist_coeffs is None:
-            # assume zero radial distortion 5 params if not provided
-            dist = numpy.zeros((5,), dtype=float)
-        else:
-            dist = numpy.array(dist_coeffs, dtype=float)
+        dist = numpy.zeros((5,), dtype=float) if dist_coeffs is None else numpy.array(dist_coeffs, dtype=float)
 
         if len(cam_field_pose) != 7:
             debug_msgs.append("NA POSE LEN")
@@ -205,33 +181,25 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
 
-        # CV <-> WPI frame transform (your existing convention)
-        WPI_TO_CV = numpy.array(
-            [[0, -1, 0],
-             [0,  0, -1],
-             [1,  0, 0]],
-            dtype=float,
-        )
+        # CV ↔ WPI converters (same as your previous code)
+        WPI_TO_CV = numpy.array([[0, -1, 0], [0, 0, -1], [1, 0, 0]], dtype=float)
         CV_TO_WPI = WPI_TO_CV.T
 
-        # R_camera_field_wpi maps camera-frame vectors to field-frame vectors
+        # R_camera_field_wpi maps camera-frame vectors (WPILib camera axes) into field-frame vectors
         R_camera_field_wpi = self._quat_to_rotmat(cam_quat)
 
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
-        # Model corners in object frame (origin at bottom center, z=0 bottom)
+        # model points in object frame (origin bottom center)
         half_width = self.bumper_size_m / 2.0
         bumper_height = self.top_z - self.bottom_z
-        model_pts = numpy.array(
-            [
-                [0.0,  half_width, bumper_height],   # top-left
-                [0.0, -half_width, bumper_height],   # top-right
-                [0.0,  half_width, 0.0],             # bottom-left
-                [0.0, -half_width, 0.0],             # bottom-right
-            ],
-            dtype=float,
-        )
+        model_pts = numpy.array([
+            [0.0,  half_width, bumper_height],   # top-left
+            [0.0, -half_width, bumper_height],   # top-right
+            [0.0,  half_width, 0.0],             # bottom-left
+            [0.0, -half_width, 0.0],             # bottom-right
+        ], dtype=float)
 
         results = []
         errs = []
@@ -240,16 +208,13 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             if obs.corner_pixels is None:
                 debug_msgs.append(f"OBS {obs_idx}: NO CORNERS")
                 continue
-            # allow fewer than 4 corners (some may be None)
-            # Expect obs.corner_pixels to be list of length 4 with pixel pairs or None for missing
+
             px_list = obs.corner_pixels
-            # Filter out missing corners while preserving index mapping to model_pts
             pts_px = []
             valid_model_indices = []
             for i, p in enumerate(px_list):
                 if p is None:
                     continue
-                # ensure shape [u, v]
                 pts_px.append((float(p[0]), float(p[1])))
                 valid_model_indices.append(i)
 
@@ -257,23 +222,27 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 debug_msgs.append(f"OBS {obs_idx}: NO VALID PIXELS")
                 continue
 
-            # Undistort -> normalized coords
+            # undistort to normalized coords (these are in OpenCV camera frame)
             norm_xy = self._undistort_normalized(pts_px, K, dist)  # Nx2
-            dirs_cam = self._ray_dir_camera_from_normalized(norm_xy)  # Nx3
+            dirs_cv = self._ray_dir_camera_from_normalized(norm_xy)  # Nx3 (OpenCV camera axes)
 
-            # Rotate the ray directions into field frame
-            # R_camera_field_wpi maps camera->field, so dir_field = R_camera_field_wpi @ dir_cam
-            dirs_field = (R_camera_field_wpi @ dirs_cam.T).T  # Nx3
+            # Convert dirs from CV camera axes -> WPILib camera axes (IMPORTANT)
+            dirs_wpi_cam = (CV_TO_WPI @ dirs_cv.T).T  # Nx3
 
-            # For each observed corner (matching model index), intersect ray with plane z = model_corner_z
+            # Rotate camera-frame directions into field-frame directions
+            dirs_field = (R_camera_field_wpi @ dirs_wpi_cam.T).T  # Nx3
+
             observed_field_points = []
             ray_ts = []
-            valid_indices = []  # indices in pts_px / dirs_field that succeeded
+            valid_indices = []
             for local_idx, model_idx in enumerate(valid_model_indices):
-                model_corner_z = model_pts[model_idx][2] + self.bottom_z  # absolute z (we assume object origin sits on ground at z=0)
+                # absolute model corner Z in field (assume object origin sits at ground z=0)
+                model_corner_z = model_pts[model_idx][2] + self.bottom_z
                 P, tval = self._intersect_ray_with_z(cam_pos_field, dirs_field[local_idx], model_corner_z)
                 if P is None:
-                    # ray parallel or nearly so; skip this corner
+                    continue
+                # sanity: ignore intersections behind camera (tval < 0)
+                if tval is not None and tval <= 0:
                     continue
                 observed_field_points.append(P)
                 ray_ts.append(tval)
@@ -284,15 +253,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 debug_msgs.append(f"OBS {obs_idx}: NO RAY INTERSECTS")
                 continue
 
-            # Build src (model) and dst (observed) arrays aligned
-            src_all = numpy.array([model_pts[valid_model_indices[i]] for i in valid_indices], dtype=float)  # Nx3
-            dst_all = numpy.array([observed_field_points[i] for i in range(len(observed_field_points))], dtype=float)  # Nx3
+            src_all = numpy.array([model_pts[valid_model_indices[i]] for i in valid_indices], dtype=float)
+            dst_all = numpy.array(observed_field_points, dtype=float)
 
-            # RANSAC-like subset enumeration (cheap for up to 4 corners)
+            # subset enumeration (cheap for up to 4)
             best_solution = None
             best_residual = float("inf")
-
-            # set min subset size:
             if num_valid >= 3:
                 min_required = 3
             elif num_valid == 2:
@@ -300,7 +266,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             else:
                 min_required = 1
 
-            # Try subsets of observed correspondences
             for k in range(min_required, num_valid + 1):
                 for subset in itertools.combinations(range(num_valid), k):
                     sub_src = src_all[list(subset), :]
@@ -311,19 +276,15 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
                         elif k == 2:
                             R_est, t_est = self._two_point_xy_fit(sub_src, sub_dst)
-                        else:  # k == 1
-                            # assume identity rotation (unknown yaw) and compute translation so that model corner maps to observed corner
+                        else:
                             R_est = numpy.eye(3, dtype=float)
                             t_est = sub_dst[0] - sub_src[0]
-                    except Exception as e:
+                    except Exception:
                         continue
 
-                    # Evaluate residuals on ALL observed correspondences (not just subset)
-                    pred = (R_est @ src_all.T).T + t_est  # Nx3
+                    pred = (R_est @ src_all.T).T + t_est
                     residuals = numpy.linalg.norm(pred - dst_all, axis=1)
                     mean_res = float(numpy.mean(residuals))
-
-                    # prefer solutions with lower mean residual; tie-break by number of inliers (k)
                     if mean_res < best_residual:
                         best_residual = mean_res
                         best_solution = (R_est, t_est, residuals, subset)
@@ -333,11 +294,8 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                 continue
 
             R_est, t_est, residuals, used_subset = best_solution
-
-            # Object origin in field frame (model origin is at bottom-center which lies at model [0,0,0])
             obj_origin_field = (R_est @ numpy.array([0.0, 0.0, 0.0])) + t_est
 
-            # Convert R_est to quaternion for Pose3d
             quat = self._rotmat_to_quat(R_est)
             field_to_object_pose = Pose3d(
                 Translation3d(*obj_origin_field),
@@ -367,7 +325,6 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             ),
             "\n".join(debug_msgs),
         )
-
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:
         pass
