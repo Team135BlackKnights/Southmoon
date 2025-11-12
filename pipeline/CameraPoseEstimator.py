@@ -26,15 +26,24 @@ class CameraPoseEstimator:
     ) -> Union[CameraPoseObservation, None]:
         raise NotImplementedError
 
-class MultiBumperCameraPoseEstimator(CameraPoseEstimator):    
+import math
+import itertools
+from typing import List, Union
+
+import cv2
+import numpy
+
+# Assuming these are available in your environment (you used them already)
+# from wpilib.geometry import Pose3d, Translation3d, Rotation3d, Quaternion
+# and your helper wpilibTranslationToOpenCv(Translation3d) function
+
+class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self, bumper_size_m: float = 0.8382, bottom_z: float = 0.0, top_z: float = 0.1778):
         self.bumper_size_m = bumper_size_m
         self.bottom_z = bottom_z
         self.top_z = top_z
 
-
     def _unpack_pose3d(self, pose3d: List[float]):
-        #todo
         tx = pose3d[0]
         ty = pose3d[1]
         tz = pose3d[2]
@@ -91,25 +100,91 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             qz = 0.25 * S
         return (qw, qx, qy, qz)
 
-    # Intersect a camera ray with a horizontal plane z = plane_z (both in field frame)
+    # ------------ geometry helpers ------------
+
+    def _undistort_normalized(self, pts_px, K, dist):
+        """
+        Convert Nx2 pixel points -> Nx2 normalized image points using cv2.undistortPoints.
+        Normalized coords are such that direction = [x, y, 1] in camera frame.
+        """
+        pts = numpy.array(pts_px, dtype=float).reshape(-1, 1, 2)
+        und = cv2.undistortPoints(pts, K, dist, P=None)
+        return und.reshape(-1, 2)
+
+    def _ray_dir_camera_from_normalized(self, norm_xy):
+        # direction in camera coords (not normalized): [x, y, 1]
+        norm_xy = numpy.array(norm_xy, dtype=float)
+        return numpy.column_stack((norm_xy[:, 0], norm_xy[:, 1], numpy.ones(len(norm_xy), dtype=float)))
+
     def _intersect_ray_with_z(self, cam_pos_field, dir_field, plane_z, eps=1e-8):
         dz = dir_field[2]
         if abs(dz) < eps:
             return None, None
-
         t = (plane_z - cam_pos_field[2]) / dz
-        Ps = cam_pos_field + t * dir_field
-        return Ps, t
+        P = cam_pos_field + t * dir_field
+        return P, t
 
-    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple [Union[CameraPoseObservation, None], str]:
+    def _umeyama_rigid_transform(self, src_pts, dst_pts):
+        """
+        Solves for R, t such that dst ~ R * src + t (3xN).
+        Returns R (3x3), t (3,).
+        """
+        src = numpy.array(src_pts, dtype=float)
+        dst = numpy.array(dst_pts, dtype=float)
+        assert src.shape == dst.shape and src.shape[0] >= 1
+
+        n = src.shape[0]
+        mu_src = src.mean(axis=0)
+        mu_dst = dst.mean(axis=0)
+        src_c = src - mu_src
+        dst_c = dst - mu_dst
+
+        cov = (dst_c.T @ src_c) / n
+        U, S, Vt = numpy.linalg.svd(cov)
+        D = numpy.identity(3)
+        if numpy.linalg.det(U @ Vt) < 0:
+            D[2, 2] = -1.0
+        R = U @ D @ Vt
+        t = mu_dst - R @ mu_src
+        return R, t
+
+    def _two_point_xy_fit(self, model_pts, observed_pts):
+        """
+        model_pts, observed_pts: shape (2,3)
+        Solve for rotation about Z and XY translation that best maps model->observed in XY.
+        Returns R (3x3), t (3,)
+        """
+        m = numpy.array(model_pts, dtype=float)[:2, :2]   # 2x2 (XY)
+        o = numpy.array(observed_pts, dtype=float)[:2, :2]
+        mm = m.mean(axis=0)
+        oo = o.mean(axis=0)
+        m_c = m - mm
+        o_c = o - oo
+        H = o_c.T @ m_c
+        U, S, Vt = numpy.linalg.svd(H)
+        R2 = U @ Vt
+        if numpy.linalg.det(R2) < 0:
+            Vt[1, :] *= -1
+            R2 = U @ Vt
+        yaw = math.atan2(R2[1, 0], R2[0, 0])
+        t_xy = oo - R2 @ mm
+        t_z = float(numpy.mean(observed_pts[:, 2]))
+        t = numpy.array([t_xy[0], t_xy[1], t_z], dtype=float)
+        R = numpy.array([[math.cos(yaw), -math.sin(yaw), 0.0],
+                         [math.sin(yaw),  math.cos(yaw), 0.0],
+                         [0.0,            0.0,           1.0]])
+        return R, t
+
+    # ------------ main solver ------------
+
+    def solve_camera_pose(self, image_observations: List[ObjDetectObservation], config_store: ConfigStore) -> tuple[Union[CameraPoseObservation, None], str]:
         debug_msgs = []
 
         if len(image_observations) == 0:
             debug_msgs.append("NA IO")
             return None, "\n".join(debug_msgs)
 
-        # Exit if no field pos available
-        if config_store.remote_config.field_camera_pose == None:
+        if config_store.remote_config.field_camera_pose is None:
             debug_msgs.append("NA POSE")
             return None, "\n".join(debug_msgs)
 
@@ -117,11 +192,20 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         cam_field_pose = config_store.remote_config.field_camera_pose
         K = numpy.array(config_store.local_config.camera_matrix, dtype=float)
         dist_coeffs = config_store.local_config.distortion_coefficients
-        dist = numpy.array(dist_coeffs, dtype=float) if dist_coeffs is not None else None
+        # make deterministic distortion array
+        if dist_coeffs is None:
+            # assume zero radial distortion 5 params if not provided
+            dist = numpy.zeros((5,), dtype=float)
+        else:
+            dist = numpy.array(dist_coeffs, dtype=float)
+
         if len(cam_field_pose) != 7:
             debug_msgs.append("NA POSE LEN")
             return None, "\n".join(debug_msgs)
+
         cam_pos_field, cam_quat = self._unpack_pose3d(cam_field_pose)
+
+        # CV <-> WPI frame transform (your existing convention)
         WPI_TO_CV = numpy.array(
             [[0, -1, 0],
              [0,  0, -1],
@@ -130,82 +214,141 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         )
         CV_TO_WPI = WPI_TO_CV.T
 
-        # NB: field_camera_pose publishes camera->field rotation in WPILib frame.
+        # R_camera_field_wpi maps camera-frame vectors to field-frame vectors
         R_camera_field_wpi = self._quat_to_rotmat(cam_quat)
-        R_field_camera_wpi = R_camera_field_wpi.T
+
         debug_msgs.append(f"CAM POS: {cam_pos_field}")
         debug_msgs.append(f"CAM QUAT: {cam_quat}")
 
-        # Pre-compute bumper corner model in the bumper object frame (origin at bottom center)
+        # Model corners in object frame (origin at bottom center, z=0 bottom)
         half_width = self.bumper_size_m / 2.0
         bumper_height = self.top_z - self.bottom_z
-        object_points_wpilib = numpy.array(
+        model_pts = numpy.array(
             [
-                [0.0, half_width, bumper_height],   # top-left
-                [0.0, -half_width, bumper_height],  # top-right
-                [0.0, half_width, 0.0],             # bottom-left
-                [0.0, -half_width, 0.0],            # bottom-right
+                [0.0,  half_width, bumper_height],   # top-left
+                [0.0, -half_width, bumper_height],   # top-right
+                [0.0,  half_width, 0.0],             # bottom-left
+                [0.0, -half_width, 0.0],             # bottom-right
             ],
-            dtype=float,
-        )
-        object_points_cv = numpy.array(
-            [wpilibTranslationToOpenCv(Translation3d(*pt)) for pt in object_points_wpilib],
             dtype=float,
         )
 
         results = []
         errs = []
-        
+
         for obs_idx, obs in enumerate(image_observations):
-            if obs.corner_pixels is None or len(obs.corner_pixels) != 4:
-                debug_msgs.append(f"OBS {obs_idx}: BAD CORNERS")
+            if obs.corner_pixels is None:
+                debug_msgs.append(f"OBS {obs_idx}: NO CORNERS")
                 continue
-            image_points = numpy.array(obs.corner_pixels, dtype=float)
+            # allow fewer than 4 corners (some may be None)
+            # Expect obs.corner_pixels to be list of length 4 with pixel pairs or None for missing
+            px_list = obs.corner_pixels
+            # Filter out missing corners while preserving index mapping to model_pts
+            pts_px = []
+            valid_model_indices = []
+            for i, p in enumerate(px_list):
+                if p is None:
+                    continue
+                # ensure shape [u, v]
+                pts_px.append((float(p[0]), float(p[1])))
+                valid_model_indices.append(i)
 
-            try:
-                solve_ok, rvecs, tvecs, reproj = cv2.solvePnPGeneric(
-                    object_points_cv,
-                    image_points,
-                    K,
-                    dist,
-                    flags=cv2.SOLVEPNP_IPPE,
-                )
-            except cv2.error as e:
-                debug_msgs.append(f"OBS {obs_idx}: solvePnP ERR {e}")
+            if len(pts_px) == 0:
+                debug_msgs.append(f"OBS {obs_idx}: NO VALID PIXELS")
                 continue
 
-            if not solve_ok or rvecs is None or len(rvecs) == 0:
-                debug_msgs.append(f"OBS {obs_idx}: NO SOL")
+            # Undistort -> normalized coords
+            norm_xy = self._undistort_normalized(pts_px, K, dist)  # Nx2
+            dirs_cam = self._ray_dir_camera_from_normalized(norm_xy)  # Nx3
+
+            # Rotate the ray directions into field frame
+            # R_camera_field_wpi maps camera->field, so dir_field = R_camera_field_wpi @ dir_cam
+            dirs_field = (R_camera_field_wpi @ dirs_cam.T).T  # Nx3
+
+            # For each observed corner (matching model index), intersect ray with plane z = model_corner_z
+            observed_field_points = []
+            ray_ts = []
+            valid_indices = []  # indices in pts_px / dirs_field that succeeded
+            for local_idx, model_idx in enumerate(valid_model_indices):
+                model_corner_z = model_pts[model_idx][2] + self.bottom_z  # absolute z (we assume object origin sits on ground at z=0)
+                P, tval = self._intersect_ray_with_z(cam_pos_field, dirs_field[local_idx], model_corner_z)
+                if P is None:
+                    # ray parallel or nearly so; skip this corner
+                    continue
+                observed_field_points.append(P)
+                ray_ts.append(tval)
+                valid_indices.append(local_idx)
+
+            num_valid = len(valid_indices)
+            if num_valid == 0:
+                debug_msgs.append(f"OBS {obs_idx}: NO RAY INTERSECTS")
                 continue
 
-            debug_msgs.append(f"OBS {obs_idx}: SOLUTIONS {len(rvecs)}")
+            # Build src (model) and dst (observed) arrays aligned
+            src_all = numpy.array([model_pts[valid_model_indices[i]] for i in valid_indices], dtype=float)  # Nx3
+            dst_all = numpy.array([observed_field_points[i] for i in range(len(observed_field_points))], dtype=float)  # Nx3
 
-            for sol_idx, (rvec, tvec, err_val) in enumerate(zip(rvecs, tvecs, reproj)):
-                R_oc_cv, _ = cv2.Rodrigues(rvec)
-                R_oc_wpi = CV_TO_WPI @ R_oc_cv @ WPI_TO_CV
-                t_co_wpi = CV_TO_WPI @ tvec.reshape(3)
+            # RANSAC-like subset enumeration (cheap for up to 4 corners)
+            best_solution = None
+            best_residual = float("inf")
 
-                R_of_wpi = R_camera_field_wpi @ R_oc_wpi
-                quat = self._rotmat_to_quat(R_of_wpi)
+            # set min subset size:
+            if num_valid >= 3:
+                min_required = 3
+            elif num_valid == 2:
+                min_required = 2
+            else:
+                min_required = 1
 
-                object_pos_field = cam_pos_field + R_camera_field_wpi @ t_co_wpi
-                field_to_object_pose = Pose3d(
-                    Translation3d(*object_pos_field),
-                    Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
-                )
+            # Try subsets of observed correspondences
+            for k in range(min_required, num_valid + 1):
+                for subset in itertools.combinations(range(num_valid), k):
+                    sub_src = src_all[list(subset), :]
+                    sub_dst = dst_all[list(subset), :]
 
-                distance = float(numpy.linalg.norm(t_co_wpi))
-                roll = field_to_object_pose.rotation().X()
-                pitch = field_to_object_pose.rotation().Y()
-                yaw = field_to_object_pose.rotation().Z()
-                err_scalar = float(err_val[0] if numpy.ndim(err_val) else err_val)
+                    try:
+                        if k >= 3:
+                            R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
+                        elif k == 2:
+                            R_est, t_est = self._two_point_xy_fit(sub_src, sub_dst)
+                        else:  # k == 1
+                            # assume identity rotation (unknown yaw) and compute translation so that model corner maps to observed corner
+                            R_est = numpy.eye(3, dtype=float)
+                            t_est = sub_dst[0] - sub_src[0]
+                    except Exception as e:
+                        continue
 
-                debug_msgs.append(
-                    f"  SOL {sol_idx}: ERR={err_scalar:.2f}px DIST={distance:.3f}m RPY=({roll:.3f},{pitch:.3f},{yaw:.3f})"
-                )
+                    # Evaluate residuals on ALL observed correspondences (not just subset)
+                    pred = (R_est @ src_all.T).T + t_est  # Nx3
+                    residuals = numpy.linalg.norm(pred - dst_all, axis=1)
+                    mean_res = float(numpy.mean(residuals))
 
-                results.append((field_to_object_pose, err_scalar, obs.obj_class if hasattr(obs, "obj_class") else obs_idx))
-                errs.append(err_scalar)
+                    # prefer solutions with lower mean residual; tie-break by number of inliers (k)
+                    if mean_res < best_residual:
+                        best_residual = mean_res
+                        best_solution = (R_est, t_est, residuals, subset)
+
+            if best_solution is None:
+                debug_msgs.append(f"OBS {obs_idx}: NO VALID TRANSFORM")
+                continue
+
+            R_est, t_est, residuals, used_subset = best_solution
+
+            # Object origin in field frame (model origin is at bottom-center which lies at model [0,0,0])
+            obj_origin_field = (R_est @ numpy.array([0.0, 0.0, 0.0])) + t_est
+
+            # Convert R_est to quaternion for Pose3d
+            quat = self._rotmat_to_quat(R_est)
+            field_to_object_pose = Pose3d(
+                Translation3d(*obj_origin_field),
+                Rotation3d(Quaternion(quat[0], quat[1], quat[2], quat[3])),
+            )
+
+            err_scalar = float(best_residual)
+            distance = float(numpy.linalg.norm(cam_pos_field - obj_origin_field))
+            debug_msgs.append(f"  OBS{obs_idx}: USED={used_subset} MEAN_RES={err_scalar:.4f} DIST={distance:.3f}")
+            results.append((field_to_object_pose, err_scalar, obs.obj_class if hasattr(obs, "obj_class") else obs_idx))
+            errs.append(err_scalar)
 
         if not results:
             debug_msgs.append("NO RESULTS")
@@ -213,7 +356,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
         best_idx = int(numpy.argmin(errs))
         best_pose, best_err, best_id = results[best_idx]
-        debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.2f}")
+        debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.4f}")
         return (
             CameraPoseObservation(
                 tag_ids=[best_id],
@@ -224,6 +367,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             ),
             "\n".join(debug_msgs),
         )
+
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self) -> None:
         pass
