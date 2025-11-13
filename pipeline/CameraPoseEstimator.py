@@ -369,13 +369,20 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         best_idx = int(numpy.argmin(errs))
         best_pose, best_err, best_id = results[best_idx]
         debug_msgs.append(f"BEST IDX: {best_idx} ERR: {best_err:.4f}")
+        #if 2, also return 2nd best
+        second_best_pose = None
+        second_best_err = None
+        if len(results) >=2:
+            sorted_indices = numpy.argsort(errs)
+            second_best_idx = sorted_indices[1]
+            second_best_pose, second_best_err, _ = results[second_best_idx]
         return (
             CameraPoseObservation(
                 tag_ids=[best_id],
                 pose_0=best_pose,
                 error_0=float(best_err),
-                pose_1=None,
-                error_1=None,
+                pose_1=second_best_pose,
+                error_1=second_best_err,
             ),
             "\n".join(debug_msgs),
         )

@@ -69,6 +69,14 @@ def objdetect_worker(
                 "error_1": None,
                 "pose_1": None,
             }
+            if pose.pose_1 is not None:
+                p1_t = pose.pose_1.translation()
+                p1_q = pose.pose_1.rotation().getQuaternion()
+                out["error_1"] = pose.error_1
+                out["pose_1"] = {
+                    "t": (p1_t.X(), p1_t.Y(), p1_t.Z()),
+                    "q": (p1_q.W(), p1_q.X(), p1_q.Y(), p1_q.Z()),
+                }
             return out, debug
         except Exception:
             return None, debug + "\nPose serialization failed."
