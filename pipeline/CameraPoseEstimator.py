@@ -135,27 +135,33 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         t = mu_dst - R @ mu_src
         return R, t
 
-    def _two_point_xy_fit(self, model_pts, observed_pts):
-        m = numpy.array(model_pts, dtype=float)[:2, :2]
-        o = numpy.array(observed_pts, dtype=float)[:2, :2]
-        mm = m.mean(axis=0)
-        oo = o.mean(axis=0)
-        m_c = m - mm
-        o_c = o - oo
-        H = o_c.T @ m_c
-        U, S, Vt = numpy.linalg.svd(H)
-        R2 = U @ Vt
-        if numpy.linalg.det(R2) < 0:
-            Vt[1, :] *= -1
-            R2 = U @ Vt
-        yaw = math.atan2(R2[1, 0], R2[0, 0])
-        t_xy = oo - R2 @ mm
-        t_z = float(numpy.mean(observed_pts[:, 2]))
-        t = numpy.array([t_xy[0], t_xy[1], t_z], dtype=float)
-        R = numpy.array([[math.cos(yaw), -math.sin(yaw), 0.0],
-                         [math.sin(yaw),  math.cos(yaw), 0.0],
-                         [0.0,            0.0,           1.0]])
-        return R, t
+    def _two_top_point_fit(self, model_pts, observed_field_points, bumper_height):
+        """
+        model_pts: Nx3 for the top two corners (in object frame)
+        observed_field_points: Nx3 intersections of the two rays with top_z plane
+        bumper_height: known vertical height (m)
+        """
+        if len(observed_field_points) != 2:
+            raise ValueError("Need exactly two top corners")
+
+        # Average of the two observed top-corner positions
+        T_mid = numpy.mean(observed_field_points, axis=0)
+
+        # Compute yaw from horizontal vector between top corners
+        v = observed_field_points[1][:2] - observed_field_points[0][:2]
+        yaw = math.atan2(v[1], v[0])
+        R_yaw = numpy.array([
+            [math.cos(yaw), -math.sin(yaw), 0.0],
+            [math.sin(yaw),  math.cos(yaw), 0.0],
+            [0.0,            0.0,           1.0],
+        ], dtype=float)
+
+        # Field vertical is +Z, drop by bumper height
+        O_field = T_mid - numpy.array([0.0, 0.0, bumper_height], dtype=float)
+
+        # Translation so that object origin (bottom center) lands at O_field
+        t = O_field - (R_yaw @ numpy.array([0.0, 0.0, 0.0]))
+        return R_yaw, t
 
     # ---------------- main solver ----------------
 
@@ -275,7 +281,12 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                         if k >= 3:
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
                         elif k == 2:
-                            R_est, t_est = self._two_point_xy_fit(sub_src, sub_dst)
+                            model_indices_for_subset = [valid_model_indices[i] for i in subset]
+                            top_corner_indices = [0, 1]  # top-left, top-right in your model order
+                            if all(idx in top_corner_indices for idx in model_indices_for_subset):
+                                R_est, t_est = self._two_top_point_fit(sub_src, sub_dst, bumper_height)
+                            else:
+                                R_est, t_est = self._two_point_xy_fit(sub_src, sub_dst)
                         else:
                             R_est = numpy.eye(3, dtype=float)
                             t_est = sub_dst[0] - sub_src[0]
