@@ -304,23 +304,24 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     sub_dst = dst_all[list(subset), :]
 
                     try:
+                        debug_msgs.append(f'K = {k}')
                         if k >= 3:
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
-                        elif len(valid_model_indices) == 2:
+                        elif len(valid_model_indices) == 2 and all(i in [0, 1] for i in valid_model_indices):
                             # === TOP TWO CORNERS ONLY ===
                             ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
                             R_est, t_est = self._two_top_point_length_fit(
                                 cam_pos_field,
                                 ray_dirs_for_these,
                                 self.bumper_size_m,  # known real width
-                                0.05,                # known height
+                                0.13,                # known height
                             )
                             if R_est is None:
                                 continue  # fallback
 
                             # --- Stupid distance bias correction for 2-corner case ---
                             APPLY_BIAS_FOR_K_EQ_2 = True
-                            BIAS_METERS = 15 
+                            BIAS_METERS = self.bumper_size_m    # empirically chosen constant
                             MIN_DISTANCE = 0.1      # safety lower bound
 
                             if APPLY_BIAS_FOR_K_EQ_2:
