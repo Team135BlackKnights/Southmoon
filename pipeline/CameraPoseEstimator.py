@@ -277,7 +277,17 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                         errs.append(err_scalar)
 
             # If PnP was not used or produced no solutions, attempt the k==2 fallback
-            if not used_pnp:
+            shouldUseK2Fallback = not used_pnp
+            if not shouldUseK2Fallback:
+                #if the distance was below some threshold, ALWAYS use the k==2 fallbac
+                for res_idx, (pose, err, id) in enumerate(results):
+                    cam_to_obj_vec = pose.translation().toVector() - cam_pos_field
+                    dist = float(numpy.linalg.norm(cam_to_obj_vec))
+                    if dist < 2.0:  # threshold in meters
+                        debug_msgs.append(f"OBS {obs_idx}: DIST {dist:.3f}m < 2.0m, using k==2 fallback")
+                        shouldUseK2Fallback = True
+                        break            
+            if shouldUseK2Fallback:
                 # undistort to normalized coords (OpenCV camera frame)
                 norm_xy = self._undistort_normalized(pts_px, K, dist)  # Nx2
                 dirs_cv = self._ray_dir_camera_from_normalized(norm_xy)  # Nx3 (OpenCV camera axes)
