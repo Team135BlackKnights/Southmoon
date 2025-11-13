@@ -316,7 +316,26 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                             self.bumper_size_m,
                             bumper_height,
                         )
-                        # keep your bias correction code here if you want
+                        obj_origin_field = (R_est @ numpy.array([0.0, 0.0, 0.0])) + t_est
+                        orig_dist = float(numpy.linalg.norm(cam_pos_field - obj_origin_field))
+
+                        corrected_dist = orig_dist - .898
+                        if corrected_dist < .1:
+                            corrected_dist = .1
+
+                        # Shift along camera→object vector to match corrected distance
+                        dir_vec = obj_origin_field - cam_pos_field
+                        dir_norm = numpy.linalg.norm(dir_vec)
+                        if dir_norm > 1e-8:
+                            dir_unit = dir_vec / dir_norm
+                            obj_origin_field = cam_pos_field + dir_unit * corrected_dist
+                            t_est = obj_origin_field - (R_est @ numpy.array([0.0, 0.0, 0.0]))
+
+                            debug_msgs.append(
+                                f"    [K==2 BIAS] dist {orig_dist:.3f} → {corrected_dist:.3f} (bias={.898}m)"
+                            )
+                        else:
+                            debug_msgs.append("    [K==2 BIAS] skipped (degenerate direction)")
                     else:
                         R_est = numpy.eye(3)
                         t_est = sub_dst[0] - sub_src[0]
