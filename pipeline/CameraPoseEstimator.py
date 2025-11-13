@@ -135,33 +135,59 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         t = mu_dst - R @ mu_src
         return R, t
 
-    def _two_top_point_fit(self, model_pts, observed_field_points, bumper_height):
+    def _two_top_point_length_fit(self, cam_pos_field, ray_dirs_field, real_width, bumper_height):
         """
-        model_pts: Nx3 for the top two corners (in object frame)
-        observed_field_points: Nx3 intersections of the two rays with top_z plane
-        bumper_height: known vertical height (m)
+        ray_dirs_field: list of 2 normalized direction vectors (Nx3)
+        real_width: known physical distance between top corners (m)
+        bumper_height: known vertical distance from top to bottom (m)
         """
-        if len(observed_field_points) != 2:
-            raise ValueError("Need exactly two top corners")
+        if len(ray_dirs_field) != 2:
+            raise ValueError("Need exactly two ray directions")
 
-        # Average of the two observed top-corner positions
-        T_mid = numpy.mean(observed_field_points, axis=0)
+        r0 = ray_dirs_field[0] / numpy.linalg.norm(ray_dirs_field[0])
+        r1 = ray_dirs_field[1] / numpy.linalg.norm(ray_dirs_field[1])
+        C = cam_pos_field
 
-        # Compute yaw from horizontal vector between top corners
-        v = observed_field_points[1][:2] - observed_field_points[0][:2]
-        yaw = math.atan2(v[1], v[0])
+        # Solve for lambda0, lambda1 so that |(C + λ1 r1) - (C + λ0 r0)| = real_width
+        # Define: d = C + λ1 r1 - (C + λ0 r0) = λ1 r1 - λ0 r0
+        # We also know (r0·r1) = cos(theta). This gives a single equation in λ1−λ0 relation.
+        cos_theta = numpy.dot(r0, r1)
+        A = 1 - cos_theta**2
+        if abs(A) < 1e-6:
+            # nearly parallel rays, fallback
+            return None, None
+
+        # geometric derivation for lambda0, lambda1 that minimizes |λ1 r1 - λ0 r0|^2 - W^2 = 0
+        # Let r0·r0 = r1·r1 = 1
+        # The optimal symmetric solution is λ0 = λ1 = λ (approx mid-depth)
+        # but we can compute using: W^2 = λ^2 * |r1 - r0|^2 ⇒ λ = W / |r1 - r0|
+        diff = r1 - r0
+        norm_diff = numpy.linalg.norm(diff)
+        if norm_diff < 1e-6:
+            return None, None
+
+        lam = real_width / norm_diff
+        P0 = C + lam * r0
+        P1 = C + lam * r1
+
+        # Compute midpoint of top edge in field coords
+        T_mid = 0.5 * (P0 + P1)
+
+        # Drop down by bumper height along field +Z
+        O_field = T_mid - numpy.array([0, 0, bumper_height], dtype=float)
+
+        # Compute yaw from the XY vector between P1 and P0
+        v_xy = P1[:2] - P0[:2]
+        yaw = math.atan2(v_xy[1], v_xy[0])
         R_yaw = numpy.array([
             [math.cos(yaw), -math.sin(yaw), 0.0],
             [math.sin(yaw),  math.cos(yaw), 0.0],
             [0.0,            0.0,           1.0],
-        ], dtype=float)
+        ])
 
-        # Field vertical is +Z, drop by bumper height
-        O_field = T_mid - numpy.array([0.0, 0.0, bumper_height], dtype=float)
-
-        # Translation so that object origin (bottom center) lands at O_field
         t = O_field - (R_yaw @ numpy.array([0.0, 0.0, 0.0]))
         return R_yaw, t
+
 
     # ---------------- main solver ----------------
 
@@ -280,13 +306,18 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     try:
                         if k >= 3:
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
-                        elif k == 2:
-                            model_indices_for_subset = [valid_model_indices[i] for i in subset]
-                            top_corner_indices = [0, 1]  # top-left, top-right in your model order
-                            if all(idx in top_corner_indices for idx in model_indices_for_subset):
-                                R_est, t_est = self._two_top_point_fit(sub_src, sub_dst, bumper_height)
-                            else:
-                                R_est, t_est = self._two_point_xy_fit(sub_src, sub_dst)
+                        elif  len(valid_model_indices) == 2 and all(i in [0, 1] for i in valid_model_indices):
+                            # top two corners only
+                            ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
+                            R_est, t_est = self._two_top_point_length_fit(
+                                cam_pos_field,
+                                ray_dirs_for_these,
+                                self.bumper_size_m,          # known real width
+                                .13,  # known height
+                            )
+                            if R_est is None:
+                               continue  # fallback
+
                         else:
                             R_est = numpy.eye(3, dtype=float)
                             t_est = sub_dst[0] - sub_src[0]
