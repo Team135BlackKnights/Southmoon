@@ -313,7 +313,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                                 cam_pos_field,
                                 ray_dirs_for_these,
                                 self.bumper_size_m,  # known real width
-                                0.13,                # known height
+                                0.05,                # known height
                             )
                             if R_est is None:
                                 continue  # fallback
