@@ -306,17 +306,45 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     try:
                         if k >= 3:
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
-                        elif  len(valid_model_indices) == 2 and all(i in [0, 1] for i in valid_model_indices):
-                            # top two corners only
+                        elif len(valid_model_indices) == 2 and all(i in [0, 1] for i in valid_model_indices):
+                            # === TOP TWO CORNERS ONLY ===
                             ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
                             R_est, t_est = self._two_top_point_length_fit(
                                 cam_pos_field,
                                 ray_dirs_for_these,
-                                self.bumper_size_m,          # known real width
-                                .13,  # known height
+                                self.bumper_size_m,  # known real width
+                                0.13,                # known height
                             )
                             if R_est is None:
-                               continue  # fallback
+                                continue  # fallback
+
+                            # --- Stupid distance bias correction for 2-corner case ---
+                            APPLY_BIAS_FOR_K_EQ_2 = True
+                            BIAS_METERS = self.bumper_size_m 
+                            MIN_DISTANCE = 0.1      # safety lower bound
+
+                            if APPLY_BIAS_FOR_K_EQ_2:
+                                # Compute current object position & distance
+                                obj_origin_field = (R_est @ numpy.array([0.0, 0.0, 0.0])) + t_est
+                                orig_dist = float(numpy.linalg.norm(cam_pos_field - obj_origin_field))
+
+                                corrected_dist = orig_dist - BIAS_METERS
+                                if corrected_dist < MIN_DISTANCE:
+                                    corrected_dist = MIN_DISTANCE
+
+                                # Shift along camera→object vector to match corrected distance
+                                dir_vec = obj_origin_field - cam_pos_field
+                                dir_norm = numpy.linalg.norm(dir_vec)
+                                if dir_norm > 1e-8:
+                                    dir_unit = dir_vec / dir_norm
+                                    obj_origin_field = cam_pos_field + dir_unit * corrected_dist
+                                    t_est = obj_origin_field - (R_est @ numpy.array([0.0, 0.0, 0.0]))
+
+                                    debug_msgs.append(
+                                        f"    [K==2 BIAS] dist {orig_dist:.3f} → {corrected_dist:.3f} (bias={BIAS_METERS})"
+                                    )
+                                else:
+                                    debug_msgs.append("    [K==2 BIAS] skipped (degenerate direction)")
 
                         else:
                             R_est = numpy.eye(3, dtype=float)
