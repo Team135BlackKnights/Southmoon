@@ -298,66 +298,37 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             else:
                 min_required = 1
 
-            for k in range(min_required, num_valid + 1):
-                for subset in itertools.combinations(range(num_valid), k):
-                    sub_src = src_all[list(subset), :]
-                    sub_dst = dst_all[list(subset), :]
+            k = num_valid
+            subsets = [tuple(range(num_valid))]
 
-                    try:
-                        if k >= 3:
-                            R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
-                        elif k==2:
-                            # === TOP TWO CORNERS ONLY ===
-                            ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
-                            R_est, t_est = self._two_top_point_length_fit(
-                                cam_pos_field,
-                                ray_dirs_for_these,
-                                self.bumper_size_m,  # known real width
-                                bumper_height,                # known height
-                            )
-                            if R_est is None:
-                                continue  # fallback
+            for subset in subsets:
+                sub_src = src_all[list(subset), :]
+                sub_dst = dst_all[list(subset), :]
 
-                            # --- Stupid distance bias correction for 2-corner case ---
-                            APPLY_BIAS_FOR_K_EQ_2 = True
-                            BIAS_METERS = self.bumper_size_m    # empirically chosen constant
-                            MIN_DISTANCE = 0.1      # safety lower bound
+                try:
+                    if k >= 3:
+                        R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
+                    elif k == 2:
+                        ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
+                        R_est, t_est = self._two_top_point_length_fit(
+                            cam_pos_field,
+                            ray_dirs_for_these,
+                            self.bumper_size_m,
+                            bumper_height,
+                        )
+                        # keep your bias correction code here if you want
+                    else:
+                        R_est = numpy.eye(3)
+                        t_est = sub_dst[0] - sub_src[0]
+                except Exception as e:
+                    debug_msgs.append(f"  [ERROR k={k}] {e}")
+                    continue
 
-                            if APPLY_BIAS_FOR_K_EQ_2:
-                                # Compute current object position & distance
-                                obj_origin_field = (R_est @ numpy.array([0.0, 0.0, 0.0])) + t_est
-                                orig_dist = float(numpy.linalg.norm(cam_pos_field - obj_origin_field))
-
-                                corrected_dist = orig_dist - BIAS_METERS
-                                if corrected_dist < MIN_DISTANCE:
-                                    corrected_dist = MIN_DISTANCE
-
-                                # Shift along camera→object vector to match corrected distance
-                                dir_vec = obj_origin_field - cam_pos_field
-                                dir_norm = numpy.linalg.norm(dir_vec)
-                                if dir_norm > 1e-8:
-                                    dir_unit = dir_vec / dir_norm
-                                    obj_origin_field = cam_pos_field + dir_unit * corrected_dist
-                                    t_est = obj_origin_field - (R_est @ numpy.array([0.0, 0.0, 0.0]))
-
-                                    debug_msgs.append(
-                                        f"    [K==2 BIAS] dist {orig_dist:.3f} → {corrected_dist:.3f} (bias={BIAS_METERS})"
-                                    )
-                                else:
-                                    debug_msgs.append("    [K==2 BIAS] skipped (degenerate direction)")
-
-                        else:
-                            R_est = numpy.eye(3, dtype=float)
-                            t_est = sub_dst[0] - sub_src[0]
-                    except Exception:
-                        continue
-
-                    pred = (R_est @ src_all.T).T + t_est
-                    residuals = numpy.linalg.norm(pred - dst_all, axis=1)
-                    mean_res = float(numpy.mean(residuals))
-                    if mean_res < best_residual:
-                        best_residual = mean_res
-                        best_solution = (R_est, t_est, residuals, subset)
+                pred = (R_est @ src_all.T).T + t_est
+                residuals = numpy.linalg.norm(pred - dst_all, axis=1)
+                mean_res = float(numpy.mean(residuals))
+                best_solution = (R_est, t_est, residuals, subset)
+                best_residual = mean_res
 
             if best_solution is None:
                 debug_msgs.append(f"OBS {obs_idx}: NO VALID TRANSFORM")
