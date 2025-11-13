@@ -320,7 +320,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
 
                             # --- Stupid distance bias correction for 2-corner case ---
                             APPLY_BIAS_FOR_K_EQ_2 = True
-                            BIAS_METERS = 2
+                            BIAS_METERS = 15 
                             MIN_DISTANCE = 0.1      # safety lower bound
 
                             if APPLY_BIAS_FOR_K_EQ_2:
