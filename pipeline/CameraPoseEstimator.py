@@ -306,7 +306,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
                     try:
                         if k >= 3:
                             R_est, t_est = self._umeyama_rigid_transform(sub_src, sub_dst)
-                        elif len(valid_model_indices) == 2 and all(i in [0, 1] for i in valid_model_indices):
+                        elif len(valid_model_indices) == 2:
                             # === TOP TWO CORNERS ONLY ===
                             ray_dirs_for_these = [dirs_field[local_idx] for local_idx in valid_indices]
                             R_est, t_est = self._two_top_point_length_fit(
