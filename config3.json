@@ -5,8 +5,8 @@
   "objdetect_stream_port": 8005,
   "capture_impl": "usb",
   "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage",
-  "obj_detect_max_fps": 0,
+  "obj_detect_max_fps": 10,
   "apriltags_enable": true,
-  "objdetect_enable": false,
+  "objdetect_enable": true,
   "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
 }
