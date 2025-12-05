@@ -40,14 +40,17 @@ class ArucoFiducialDetector(FiducialDetector):
         self._aruco_params = params
         
         # ~2.25x speedup
-        self._detection_scale = 0.75  # 1600x1304 goes to 1200x978
+        self._detection_scale = 1.0  # 1600x1304 goes to 1200x978
         
 
     def detect_fiducials(self, image: cv2.Mat, config_store: ConfigStore) -> List[FiducialImageObservation]:
-        h, w = image.shape[:2]
-        scaled_h, scaled_w = int(h * self._detection_scale), int(w * self._detection_scale)
-        scaled_image = cv2.resize(image, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
-        corners, ids, rejected_corners = cv2.aruco.detectMarkers(scaled_image, self._aruco_dict, parameters=self._aruco_params)
+        if self._detection_scale != 1.0:
+            h, w = image.shape[:2]
+            scaled_h, scaled_w = int(h * self._detection_scale), int(w * self._detection_scale)
+            scaled_image = cv2.resize(image, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+            corners, ids, rejected_corners = cv2.aruco.detectMarkers(scaled_image, self._aruco_dict, parameters=self._aruco_params)
+        else:
+            corners, ids, rejected_corners = cv2.aruco.detectMarkers(image, self._aruco_dict, parameters=self._aruco_params)
         #refine
         if len(corners) == 0:
             return []
