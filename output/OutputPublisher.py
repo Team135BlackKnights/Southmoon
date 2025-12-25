@@ -153,15 +153,6 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(0.0)
             observation_data.append(0.0)
             observation_data.append(0.0)
-            #pose 2
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
-            observation_data.append(0.0)
         else:
             observation_data.append(pose.get('error_0', 0.0))
             p0 = pose.get('pose_0', {})
