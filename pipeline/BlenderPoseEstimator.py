@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import List, Union
 import cv2
 import numpy as np
 from numpy.typing import NDArray
@@ -121,7 +121,7 @@ class BlenderPoseEstimator:
         print("No rows found within the max tolerance.")
         return self.lookup_df.iloc[[]], tolerance  # Return an empty DataFrame
 
-    def find_oriented_angle(self, contour, image): 
+    def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
         """
         Given a contour, find the two longest straight lines,
         average their directions, and return the dominant angle in degrees.
@@ -160,15 +160,16 @@ class BlenderPoseEstimator:
         avg_angle = math.degrees(math.atan2(y_mean, x_mean))
 
         avg_angle = (avg_angle + 360 + 90) % 180  # normalize to [0, 180)
-        # 5. Draw
-        for _, angle, p1, p2 in longest:
-            cv2.line(image, tuple(p1), tuple(p2), (0, 255, 0), 2)
-            # Draw the averaged orientation line at the contour center
-            cx, cy = np.mean(approx[:, 0, :], axis=0).astype(int)
-            length = 50
-            x2 = int(cx + length * math.cos(math.radians(avg_angle)))
-            y2 = int(cy + length * math.sin(math.radians(avg_angle)))
-            cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
+        # 5. Draw if can
+        if image is not None:
+            for _, angle, p1, p2 in longest:
+                cv2.line(image, tuple(p1), tuple(p2), (0, 255, 0), 2)
+                # Draw the averaged orientation line at the contour center
+                cx, cy = np.mean(approx[:, 0, :], axis=0).astype(int)
+                length = 50
+                x2 = int(cx + length * math.cos(math.radians(avg_angle)))
+                y2 = int(cy + length * math.sin(math.radians(avg_angle)))
+                cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
         return avg_angle,image
     def find_oriented_bounding_rect(self, image, lower_color, upper_color):
         """    Detects the largest contour of a specified color in the image and returns its bounding rectangle.
@@ -346,18 +347,8 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            rect_center, rect_size, raw_angle = cv2.minAreaRect(points)
-            rect_width, rect_height = rect_size
-            if rect_width < rect_height:
-                # Align the longer edge with the reported angle for consistency
-                rect_width, rect_height = rect_height, rect_width
-                raw_angle += 90.0
-
-            center_x = float(rect_center[0])
-            center_y = float(rect_center[1])
-            width = float(rect_width)
-            height = float(rect_height)
-            oriented_angle = (raw_angle + 360.0) % 180.0
+            contour = points.reshape(-1, 1, 2).astype(np.int32)
+            oriented_angle, _ = self.find_oriented_angle(contour)
         return self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
