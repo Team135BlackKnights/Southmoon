@@ -13,7 +13,7 @@ import numpy
 from config.config import ConfigStore
 from pipeline.coordinate_systems import openCvPoseToWpilib, wpilibTranslationToOpenCv
 from vision_types import CameraPoseObservation, FiducialImageObservation, ObjDetectObservation
-from wpimath.geometry import *
+from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion, Transform3d
 import math
 from typing import List, Union
 import cv2

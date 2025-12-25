@@ -15,6 +15,7 @@ import cv2
 from config.config import ConfigStore
 from output.overlay_util import overlay_obj_detect_observation
 from output.StreamServer import MjpegServer
+from pipeline.BlenderPoseEstimator import BlenderPoseEstimator
 from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
 from pipeline.ObjectDetector import CoreMLObjectDetector
 from vision_types import ObjDetectObservation
@@ -36,7 +37,9 @@ def objdetect_worker(
     Workflow:
       - Initialize model and pose estimator on first frame
       - Copy frame data from shared memory (avoid pickling)
-      - Run CoreML inference and optional pose solve
+      - Run CoreML inference and (pose solve or Blender lookup)
+      - Serialize pose into dict for IPC
+      - Send results back via q_out
       - Overlay detections for MJPEG server if clients are connected
       - Send observation + serialized pose back via q_out
     """
@@ -44,11 +47,10 @@ def objdetect_worker(
     frame_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
     detector = None
-    bumper_pose_estimator = MultiBumperCameraPoseEstimator()
+    pose_estimator: MultiBumperCameraPoseEstimator | BlenderPoseEstimator | None = None
     stream_server = MjpegServer()
     stream_server.start(server_port)
     last_sent_ts = 0.0
-
     def _serialize_pose(pose: Union[CameraPoseObservationType, None], debug: str) -> Tuple[dict, str]:
         """Convert pose object into a serializable dict for IPC."""
         if pose is None:
@@ -86,11 +88,18 @@ def objdetect_worker(
             # Wait for next job: (timestamp, config)
             timestamp, config = q_in.get()
 
-            if detector is None:
+            if detector is None and config.local_config.obj_detect_model != "":
                 model_path = config.local_config.obj_detect_model
                 print(f"[ObjDetectWorker] Loading CoreML model: {model_path}")
                 detector = CoreMLObjectDetector(model_path)
-
+            if pose_estimator is None:
+                print(f"[ObjDetectWorker] Initializing Pose Estimator...")
+                if (config.local_config.obj_blender_lookup_csv is not None and
+                    config.local_config.obj_blender_lookup_csv != ""):
+                    pose_estimator = BlenderPoseEstimator(config.local_config.obj_blender_lookup_csv)
+                else:
+                    pose_estimator = MultiBumperCameraPoseEstimator()
+                    
             max_fps = getattr(config.local_config, "obj_detect_max_fps", -1)
             if max_fps and max_fps > 0:
                 min_dt = 1.0 / max_fps
@@ -99,10 +108,35 @@ def objdetect_worker(
                 last_sent_ts = timestamp
 
             # Copy frame from shared memory
-            image = frame_buf.copy()            
-
-            observations = detector.detect(image, config)
-            pose_obs,debug = bumper_pose_estimator.solve_camera_pose(observations, config)
+            image = frame_buf.copy()  
+            if detector is None:
+                #pose_estimator MUST be BlenderPoseEstimator if no detector
+                #use hsv thresholds to find oriented bounding rect
+                position,image,debug = pose_estimator.estimate_position(image, config)
+                pose_obs,debug = pose_estimator.position_to_field_pose(position,config,debug)
+            else:
+                observations = detector.detect(image, config)
+                if observations is not None and len(observations) >0:  
+                    if type(pose_estimator) is BlenderPoseEstimator:
+                        #find the biggest CORRECT observation
+                        lowest_dist = float('inf')
+                        best_position = None
+                        for obs in observations:
+                            if obs.ai_id == config.remote_config.obj_blender_ai_id:
+                                position,debug = pose_estimator.estimate_ai_position(obs, config)
+                                xy = np.asarray(position[:2], dtype=float)
+                                dist = np.linalg.norm(xy)
+                                if dist < lowest_dist:
+                                    lowest_dist = dist
+                                    best_position = position
+                        position = best_position
+                        pose_obs,debug = pose_estimator.position_to_field_pose(position,config,debug)
+                    else:            
+                        pose_obs,debug = pose_estimator.solve_camera_pose(observations, config)
+                else:
+                    #we have no obs, so pose is None
+                    pose_obs = None
+                    debug = "NA IO"
             pose_serial,debug = _serialize_pose(pose_obs,debug)
             # Send results to main process
             try:

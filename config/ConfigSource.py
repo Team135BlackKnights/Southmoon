@@ -37,6 +37,8 @@ class FileConfigSource(ConfigSource):
             config_store.local_config.obj_detect_max_fps = config_data["obj_detect_max_fps"]
             config_store.local_config.apriltags_enable = config_data["apriltags_enable"]
             config_store.local_config.objdetect_enable = config_data["objdetect_enable"]
+            config_store.local_config.obj_blender_lookup_csv = config_data["obj_blender_lookup_csv"]
+            config_store.local_config.obj_use_oriented_detection = config_data["obj_use_oriented_detection"]
             config_store.local_config.video_folder = config_data["video_folder"]
 
         # Get calibration
@@ -91,6 +93,9 @@ class NTConfigSource(ConfigSource):
     _field_camera_pose_sub: ntcore.FloatArraySubscriber
     _is_recording_sub: ntcore.BooleanSubscriber
     _timestamp_sub: ntcore.IntegerSubscriber
+    _obj_lower_hsv_sub: ntcore.IntegerArraySubscriber
+    _obj_upper_hsv_sub: ntcore.IntegerArraySubscriber
+    _obj_blender_ai_id_sub: ntcore.IntegerSubscriber
 
     def update(self, config_store: ConfigStore) -> None:
         # Initialize subscribers on first call
@@ -128,6 +133,9 @@ class NTConfigSource(ConfigSource):
             self._tag_layout_sub = nt_table.getStringTopic("tag_layout").subscribe("")
             self._is_recording_sub = nt_table.getBooleanTopic("is_recording").subscribe(False)
             self._timestamp_sub = nt_table.getIntegerTopic("timestamp").subscribe(0)
+            self._obj_lower_hsv_sub = nt_table.getIntegerArrayTopic("obj_lower_hsv").subscribe([0,0,0])
+            self._obj_upper_hsv_sub = nt_table.getIntegerArrayTopic("obj_upper_hsv").subscribe([0,0,0])
+            self._obj_blender_ai_id_sub = nt_table.getIntegerTopic("obj_blender_ai_id").subscribe(0)
             self._init_complete = True
 
         # Read config data
@@ -151,3 +159,6 @@ class NTConfigSource(ConfigSource):
         config_store.remote_config.field_camera_pose = self._field_camera_pose_sub.get()
         config_store.remote_config.is_recording = self._is_recording_sub.get()
         config_store.remote_config.timestamp = self._timestamp_sub.get()
+        config_store.remote_config.lower_hsv = self._obj_lower_hsv_sub.get()
+        config_store.remote_config.upper_hsv = self._obj_upper_hsv_sub.get()
+        config_store.remote_config.obj_blender_ai_id = self._obj_blender_ai_id_sub.get()

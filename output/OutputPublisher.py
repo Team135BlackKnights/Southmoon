@@ -135,6 +135,7 @@ class NTOutputPublisher(OutputPublisher):
         observation_data.append(-1.0)  # Indicate pose follows
         # Pose can be a CameraPoseObservation or a serialized dict produced by worker
         if (pose is None):
+            #tx/ty
             observation_data.append(0.0)
             observation_data.append(0.0)
             observation_data.append(0.0)
@@ -143,6 +144,16 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(0.0)
             observation_data.append(0.0)
             observation_data.append(0.0)
+            #pose 1
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            observation_data.append(0.0)
+            #pose 2
             observation_data.append(0.0)
             observation_data.append(0.0)
             observation_data.append(0.0)

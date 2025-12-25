@@ -19,6 +19,8 @@ class LocalConfig:
     objdetect_stream_port: int = 8001
     capture_impl: str = ""
     obj_detect_model: str = ""
+    obj_blender_lookup_csv: str = ""
+    obj_use_oriented_detection: bool = False    
     obj_detect_max_fps: int = -1
     apriltags_enable: bool = False
     objdetect_enable: bool = True
@@ -46,6 +48,9 @@ class RemoteConfig:
     field_camera_pose: list[float] = field(default_factory=lambda: [0,0,0,0,0,0,0])
     is_recording: bool = False
     timestamp: int = 0
+    lower_hsv: list[int] = field(default_factory=lambda: [0,0,0])
+    upper_hsv: list[int] = field(default_factory=lambda: [0,0,0])
+    obj_blender_ai_id: int = -1
 
 
 @dataclass
