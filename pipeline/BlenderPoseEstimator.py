@@ -362,24 +362,16 @@ class BlenderPoseEstimator:
                 
                 print(f"[AI Debug] ordered corners: {ordered.tolist()}")
                 
-                # Draw all four edges FIRST before any other processing
-                if image is not None:
-                    for i in range(4):
-                        p1 = (int(ordered[i][0]), int(ordered[i][1]))
-                        p2 = (int(ordered[(i + 1) % 4][0]), int(ordered[(i + 1) % 4][1]))
-                        print(f"[AI Debug] Drawing line {i}: {p1} -> {p2}")
-                        cv2.line(image, p1, p2, (0, 255, 0), 2)
-                
                 # Compute orientation from the edges
                 lines = []
                 for i in range(4):
-                    p1 = ordered[i]
-                    p2 = ordered[(i + 1) % 4]
+                    p1 = (int(ordered[i][0]), int(ordered[i][1]))
+                    p2 = (int(ordered[(i + 1) % 4][0]), int(ordered[(i + 1) % 4][1]))
                     dx = p2[0] - p1[0]
                     dy = p2[1] - p1[1]
                     length = math.hypot(dx, dy)
                     angle = math.degrees(math.atan2(dy, dx))
-                    lines.append((length, angle))
+                    lines.append((length, angle, p1, p2))
                 
                 # Take two longest for orientation (like find_oriented_angle)
                 lines.sort(reverse=True, key=lambda x: x[0])
@@ -390,8 +382,10 @@ class BlenderPoseEstimator:
                 avg_angle = math.degrees(math.atan2(y_mean, x_mean))
                 oriented_angle = (avg_angle + 360 + 90) % 180
                 
-                # Draw arrow
+                # Draw only the two longest edges (green) and arrow (yellow)
                 if image is not None:
+                    for _, _, p1, p2 in longest:
+                        cv2.line(image, p1, p2, (0, 255, 0), 2)
                     cx, cy = int(center_x), int(center_y)
                     arrow_len = 50
                     x2 = int(cx + arrow_len * math.cos(math.radians(oriented_angle)))
