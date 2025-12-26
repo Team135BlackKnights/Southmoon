@@ -481,7 +481,7 @@ class BlenderPoseEstimator:
                 Rotation3d(Quaternion(p0_q[0], p0_q[1], p0_q[2], p0_q[3])),
             )
             #add 90 degrees to match field coords
-            field_yaw = (rel_yaw + 90.0) % 360.
+            field_yaw = (rel_yaw + 45.0) % 360.
             field_q = self._yaw_to_quaternion(field_yaw)
             relative_transform = Transform3d(
                 Translation3d(position[1], -position[0], 0.0),
