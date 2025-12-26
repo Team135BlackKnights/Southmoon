@@ -351,49 +351,9 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            # AI corners are: TL(0), TR(1), BL(2), BR(3) - reorder to perimeter: TL, TR, BR, BL
-            if points.shape[0] == 4:
-                ordered = np.array([
-                    points[0],  # TL
-                    points[1],  # TR
-                    points[3],  # BR
-                    points[2],  # BL
-                ], dtype=np.int32)
-                
-                print(f"[AI Debug] ordered corners: {ordered.tolist()}")
-                
-                # Compute orientation from the edges
-                lines = []
-                for i in range(4):
-                    p1 = (int(ordered[i][0]), int(ordered[i][1]))
-                    p2 = (int(ordered[(i + 1) % 4][0]), int(ordered[(i + 1) % 4][1]))
-                    dx = p2[0] - p1[0]
-                    dy = p2[1] - p1[1]
-                    length = math.hypot(dx, dy)
-                    angle = math.degrees(math.atan2(dy, dx))
-                    lines.append((length, angle, p1, p2))
-                
-                # Take two longest for orientation (like find_oriented_angle)
-                lines.sort(reverse=True, key=lambda x: x[0])
-                longest = lines[:2]
-                angles_rad = [math.radians(l[1]) for l in longest]
-                x_mean = np.mean([math.cos(a) for a in angles_rad])
-                y_mean = np.mean([math.sin(a) for a in angles_rad])
-                avg_angle = math.degrees(math.atan2(y_mean, x_mean))
-                oriented_angle = (avg_angle + 360 + 90) % 180
-                
-                # Draw only the two longest edges (green) and arrow (yellow)
-                if image is not None:
-                    for _, _, p1, p2 in longest:
-                        cv2.line(image, p1, p2, (0, 255, 0), 2)
-                    cx, cy = int(center_x), int(center_y)
-                    arrow_len = 50
-                    x2 = int(cx + arrow_len * math.cos(math.radians(oriented_angle)))
-                    y2 = int(cy + arrow_len * math.sin(math.radians(oriented_angle)))
-                    cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
-            else:
-                contour = cv2.convexHull(points.reshape(-1, 1, 2).astype(np.int32))
-                oriented_angle, image = self.find_oriented_angle(contour, image)
+            ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
+            contour = ordered.reshape(-1,1,2).astype(np.int32)
+            oriented_angle, image = self.find_oriented_angle(contour, image)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
