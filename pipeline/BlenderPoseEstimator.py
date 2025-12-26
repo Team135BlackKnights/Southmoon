@@ -351,8 +351,9 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            contour = points.reshape(-1, 1, 2).astype(np.int32)
-            oriented_angle, image = self.find_oriented_angle(contour,image)
+            contour = points.reshape(-1, 1, 2).astype(np.float32)
+            hull = cv2.convexHull(contour)
+            oriented_angle, image = self.find_oriented_angle(hull.astype(np.int32), image)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
