@@ -130,7 +130,7 @@ class BlenderPoseEstimator:
 
         h, w = image.shape[:2]
 
-        # ---- 1. Draw polygon ----
+        # ---- 1. Draw polygon (magenta) ----
         poly_int = ordered_pts.astype(np.int32)
         cv2.polylines(image, [poly_int], True, (255, 0, 255), 2)
 
@@ -146,7 +146,7 @@ class BlenderPoseEstimator:
         if roi.size == 0:
             return None, image
 
-        # ---- 4. Adaptive HSV threshold inside polygon ----
+        # ---- 4. Adaptive HSV threshold (local) ----
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         pixels = hsv[roi_mask > 0]
         if pixels.size == 0:
@@ -192,26 +192,48 @@ class BlenderPoseEstimator:
         if cv2.contourArea(c) < 50:
             return None, image
 
-        # Shift contour back to full image coords
+        # shift contour back to image coords
         c[:, 0, 0] += x
         c[:, 0, 1] += y
 
-        # ---- 6. Orientation via minAreaRect ----
-        rect = cv2.minAreaRect(c)
-        angle = rect[2]
-        if rect[1][0] < rect[1][1]:
-            angle += 90.0
-        angle = angle % 180
+        # ---- 6. Pixel-based axis (PCA, no 90° choice yet) ----
+        pts = c.reshape(-1, 2).astype(np.float32)
+        mean = np.mean(pts, axis=0)
+        cov = np.cov((pts - mean).T)
+        eigvals, eigvecs = np.linalg.eig(cov)
+        principal = eigvecs[:, np.argmax(eigvals)]
+        pixel_angle = (math.degrees(math.atan2(principal[1], principal[0])) + 360) % 180
 
-        # ---- 7. Draw ----
-        box = cv2.boxPoints(rect).astype(np.int32)
-        cv2.drawContours(image, [box], 0, (0, 255, 0), 2)
+        # ---- 7. Corner-based axis (disambiguation) ----
+        edges = []
+        for i in range(4):
+            p1 = ordered_pts[i]
+            p2 = ordered_pts[(i + 1) % 4]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.hypot(dx, dy)
+            angle = (math.degrees(math.atan2(dy, dx)) + 360) % 180
+            edges.append((length, angle))
 
-        cx, cy = map(int, rect[0])
+        edges.sort(reverse=True, key=lambda e: e[0])
+        corner_angle = edges[0][1]
+
+        # choose between θ and θ+90
+        a1 = pixel_angle
+        a2 = (pixel_angle + 90) % 180
+
+        d1 = min(abs(a1 - corner_angle), 180 - abs(a1 - corner_angle))
+        d2 = min(abs(a2 - corner_angle), 180 - abs(a2 - corner_angle))
+
+        angle = a1 if d1 < d2 else a2
+
+        # ---- 8. Draw final arrow (yellow) ----
+        cx, cy = mean.astype(int)
         arrow_len = 50
         x2 = int(cx + arrow_len * math.cos(math.radians(angle)))
         y2 = int(cy + arrow_len * math.sin(math.radians(angle)))
-        cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
+        cv2.arrowedLine(image, (cx, cy), (x2, y2),
+                        (255, 255, 0), 2, tipLength=0.2)
 
         return angle, image
 
