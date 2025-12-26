@@ -110,7 +110,6 @@ class NTOutputPublisher(OutputPublisher):
         self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectObservation], pose: Union[dict, None]
     ) -> None:
         self._check_init(config_store)
-
         observation_data: List[float] = []
         #find the observation with the highest confidence
         max_confidence = -1.0
@@ -119,19 +118,21 @@ class NTOutputPublisher(OutputPublisher):
             if observation.confidence > max_confidence:
                 max_confidence = observation.confidence
                 max_confidence_observation = observation    
-        if max_confidence_observation is None:        
-            return
-        observation_data.append(max_confidence_observation.obj_class)
-        observation_data.append(max_confidence_observation.confidence)
-        for angle in max_confidence_observation.corner_angles.ravel():
-            observation_data.append(angle)
-            
-        #print out the type
-        print("Pose type:", type(pose))
-        #print out all available keys
-        if isinstance(pose, dict):
-            print("Pose keys:", pose.keys())
-        
+        if max_confidence_observation is None:
+            #We could have HSV with a pose. If pose is NOT None, we should still send it.
+            if (pose is None):
+                return
+            observation_data.append(-1.0)  # Indicate no detections
+            observation_data.append(0.0)
+            # Fill in zeros for angles
+            for _ in range(8):
+                observation_data.append(0.0)
+        else:
+            observation_data.append(max_confidence_observation.obj_class)
+            observation_data.append(max_confidence_observation.confidence)
+            for angle in max_confidence_observation.corner_angles.ravel():
+                observation_data.append(angle)
+                    
         observation_data.append(-1.0)  # Indicate pose follows
         # Pose can be a CameraPoseObservation or a serialized dict produced by worker
         if (pose is None):
