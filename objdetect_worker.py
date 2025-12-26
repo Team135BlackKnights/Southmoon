@@ -60,6 +60,7 @@ def objdetect_worker(
             #pose is a CameraPoseObservation, cast it
             
             p0_t = pose.pose_0.translation()
+            print(f"Pose t: {p0_t.X()}, {p0_t.Y()}, {p0_t.Z()}")
             p0_q = pose.pose_0.rotation().getQuaternion()
             out = {
                 "tag_ids": pose.tag_ids,
