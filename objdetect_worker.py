@@ -129,7 +129,7 @@ def objdetect_worker(
                         best_position = None
                         best_debug = ''
                         for obs in observations:
-                            position, cand_debug = pose_estimator.estimate_ai_position(obs, config)
+                            position, cand_image, cand_debug = pose_estimator.estimate_ai_position(obs, config)
                             if position is None:
                                 continue
                             xy = np.asarray(position[:2], dtype=float)
@@ -137,6 +137,7 @@ def objdetect_worker(
                             if dist < lowest_dist:
                                 lowest_dist = dist
                                 best_position = position
+                                image = cand_image
                                 best_debug = cand_debug
                         position = best_position
                         debug = best_debug if best_position is not None else "No matching observation"

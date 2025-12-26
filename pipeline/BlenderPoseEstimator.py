@@ -328,18 +328,19 @@ class BlenderPoseEstimator:
         return result, debug_image, ''     
     def estimate_ai_position(
         self,
+        image,
         image_observation: ObjDetectObservation, 
         config_store: ConfigStore
     ):
         if self.lookup_df is None or self.lookup_df.empty:
-            return None, 'No lookup data'
+            return None, image,'No lookup data'
         corners = np.asarray(image_observation.corner_pixels, dtype=np.float32)
         if corners.size == 0:
-            return None, 'No corners'
+            return None, image,'No corners'
 
         points = corners.reshape(-1, 2)
         if points.shape[0] < 2:
-            return None, 'Not enough points'
+            return None, image,'Not enough points'
 
         min_xy = points.min(axis=0)
         max_xy = points.max(axis=0)
@@ -351,7 +352,7 @@ class BlenderPoseEstimator:
 
         if points.shape[0] >= 3:
             contour = points.reshape(-1, 1, 2).astype(np.int32)
-            oriented_angle, _ = self.find_oriented_angle(contour)
+            oriented_angle, image = self.find_oriented_angle(contour,image)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
@@ -361,8 +362,8 @@ class BlenderPoseEstimator:
             oriented_angle=oriented_angle,
         )
         if result is None:
-            return None,'No picture in tolerance'
-        return result, ''
+            return None,image,'No picture in tolerance'
+        return result,image, ''
     def position_to_field_pose(
         self,
         position: dict,
