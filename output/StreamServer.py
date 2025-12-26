@@ -168,6 +168,6 @@ class MjpegServer(StreamServer):
 
     def get_client_count(self) -> int:
         if len(self._uuid) > 0:
-            return CLIENT_COUNTS[self._uuid]
+            return CLIENT_COUNTS.get(self._uuid, 0)
         else:
             return 0
