@@ -51,8 +51,7 @@ class BlenderPoseEstimator:
         Returns:
             tuple: A tuple containing the coordinates (x, y) and dimensions (width, height) of the bounding rectangle.
         """
-        # Convert RGB to HSV
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         
         # Combine masks to get only red pixels
         mask = cv2.inRange(hsv, lower_color, upper_color)
@@ -127,7 +126,7 @@ class BlenderPoseEstimator:
         average their directions, and return the dominant angle in degrees.
         """
         if len(contour) < 2:
-            return None
+            return None, image
 
         # 1. Simplify contour (remove small jitter)
         epsilon = 0.01 * cv2.arcLength(contour, True)
@@ -146,7 +145,7 @@ class BlenderPoseEstimator:
                 lines.append((length, angle, p1, p2))
 
         if len(lines) < 2:
-            return None
+            return None, image
 
         # 3. Take two longest lines
         lines.sort(reverse=True, key=lambda x: x[0])
@@ -170,7 +169,7 @@ class BlenderPoseEstimator:
                 x2 = int(cx + length * math.cos(math.radians(avg_angle)))
                 y2 = int(cy + length * math.sin(math.radians(avg_angle)))
                 cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
-        return avg_angle,image
+        return avg_angle, image
     def find_oriented_bounding_rect(self, image, lower_color, upper_color):
         """    Detects the largest contour of a specified color in the image and returns its bounding rectangle.
         Args:
@@ -180,8 +179,7 @@ class BlenderPoseEstimator:
         Returns:
             tuple: A tuple containing the coordinates (x, y) and dimensions (width, height) of the bounding rectangle.
         """
-        # Convert RGB to HSV
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         
         # Combine masks to get only red pixels
         mask = cv2.inRange(hsv, lower_color, upper_color)
@@ -198,12 +196,15 @@ class BlenderPoseEstimator:
 
         # Find contours
         contours, _ = cv2.findContours(processed_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None, image
+
         contour = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(contour)
         cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 255), 2)
-        angle,image = self.find_oriented_angle(contour, image)
+        angle, image = self.find_oriented_angle(contour, image)
 
-        return (x + w / 2, y + h / 2), (w, h), angle, image
+        return ((x + w / 2, y + h / 2), (w, h), angle), image
     def find_oriented_matching_rows(self, target, start_tol=2, max_tol=15, step=2):
         """
         Find rows in the dataframe that match the target values within a dynamically
@@ -306,15 +307,18 @@ class BlenderPoseEstimator:
         Estimate the position of any object within an image based on color detection alone.
         """
         #target res is like (1600,1304)
-        #image is cv2 image of 1600,1304 color format RGB 
+        #image is cv2 image of 1600,1304 color format BGR ?
         #df is dataframe with columns Center_X, Center_Y, Width, Height, Angle
         lower_hsv = tuple(config.remote_config.lower_hsv)
         upper_hsv = tuple(config.remote_config.upper_hsv)
-        (center_x, center_y), (width, height), oriented_angle,image = self.find_oriented_bounding_rect(image, lower_hsv, upper_hsv)
-        if oriented_angle is None:
-            return None,'No contour'
+        rect_info, debug_image = self.find_oriented_bounding_rect(image, lower_hsv, upper_hsv)
+        if rect_info is None:
+            return None, debug_image, 'No contour'
+        (center_x, center_y), (width, height), oriented_angle = rect_info
+        if oriented_angle is None and config.local_config.obj_use_oriented_detection:
+            return None, debug_image, 'No orientation'
         if self.lookup_df is None or self.lookup_df.empty:
-            return None,'No lookup data'
+            return None, debug_image, 'No lookup data'
         return self._match_position_from_rect(
             config=config,
             center_x=float(center_x),
@@ -322,7 +326,7 @@ class BlenderPoseEstimator:
             width=float(width),
             height=float(height),
             oriented_angle=oriented_angle,
-        ), image, ''
+        ), debug_image, ''
     def estimate_ai_position(
         self,
         image_observation: ObjDetectObservation, 
