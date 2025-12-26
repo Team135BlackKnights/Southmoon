@@ -118,41 +118,103 @@ class BlenderPoseEstimator:
         # No rows found within maximum tolerance
         print("No rows found within the max tolerance.")
         return self.lookup_df.iloc[[]], tolerance  # Return an empty DataFrame
-    def angle_from_4corners(self,corners):
+    def oriented_angle_from_polygon_mask(
+        self,
+        image: np.ndarray,
+        ordered_pts: np.ndarray,
+    ):
         """
-        corners: (4,2) np.array in any order but ideally TL,TR,BR,BL or similar.
-        returns angle in degrees in image coords (y down).
+        ordered_pts: (4,2) float32 array in TL,TR,BR,BL order
+        Returns: (angle_deg or None, image)
         """
-        pts = np.asarray(corners, dtype=np.float32).reshape(4,2)
-        # Attempt to sort to consistent winding: by x then y (simple)
-        # A better approach is to order by arclength around centroid
-        c = np.mean(pts, axis=0)
-        # sort by angle around centroid
-        angles = np.arctan2(pts[:,1]-c[1], pts[:,0]-c[0])
-        order = np.argsort(angles)
-        p = pts[order]
 
-        # get four edges (wrap)
-        edges = []
-        for i in range(4):
-            p1 = p[i]
-            p2 = p[(i+1)%4]
-            dx = p2[0]-p1[0]
-            dy = p2[1]-p1[1]
-            length = math.hypot(dx, dy)
-            angle = math.degrees(math.atan2(dy, dx))
-            edges.append((length, angle))
+        h, w = image.shape[:2]
 
-        # pick two longest edges and compute circular mean
-        edges.sort(reverse=True, key=lambda e: e[0])
-        long_angles = [edges[0][1], edges[1][1]]
-        # circular mean
-        a_rad = np.radians(long_angles)
-        x = np.mean(np.cos(a_rad))
-        y = np.mean(np.sin(a_rad))
-        avg = math.degrees(math.atan2(y,x))
-        # normalize to [0,180) if you want
-        return (avg + 360) % 180
+        # ---- 1. Draw polygon ----
+        poly_int = ordered_pts.astype(np.int32)
+        cv2.polylines(image, [poly_int], True, (255, 0, 255), 2)
+
+        # ---- 2. Polygon mask ----
+        poly_mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.fillPoly(poly_mask, [poly_int], 255)
+
+        # ---- 3. Crop ROI ----
+        x, y, bw, bh = cv2.boundingRect(poly_int)
+        roi = image[y:y+bh, x:x+bw]
+        roi_mask = poly_mask[y:y+bh, x:x+bw]
+
+        if roi.size == 0:
+            return None, image
+
+        # ---- 4. Adaptive HSV threshold inside polygon ----
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        pixels = hsv[roi_mask > 0]
+        if pixels.size == 0:
+            return None, image
+
+        median = np.median(pixels, axis=0)
+        std = np.std(pixels, axis=0)
+
+        k = 2.5
+        dH = min(15, max(5, int(k * std[0])))
+        dS = min(120, max(30, int(k * std[1])))
+        dV = min(120, max(30, int(k * std[2])))
+
+        # White-object handling
+        if median[1] < 40:
+            lower = np.array([0, 0, max(0, median[2] - dV)], dtype=np.uint8)
+            upper = np.array([179, dS, min(255, median[2] + dV)], dtype=np.uint8)
+        else:
+            lower = np.array([
+                max(0, median[0] - dH),
+                max(0, median[1] - dS),
+                max(0, median[2] - dV),
+            ], dtype=np.uint8)
+            upper = np.array([
+                min(179, median[0] + dH),
+                min(255, median[1] + dS),
+                min(255, median[2] + dV),
+            ], dtype=np.uint8)
+
+        mask = cv2.inRange(hsv, lower, upper)
+        mask = cv2.bitwise_and(mask, mask, mask=roi_mask)
+
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        # ---- 5. Contour ----
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None, image
+
+        c = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(c) < 50:
+            return None, image
+
+        # Shift contour back to full image coords
+        c[:, 0, 0] += x
+        c[:, 0, 1] += y
+
+        # ---- 6. Orientation via minAreaRect ----
+        rect = cv2.minAreaRect(c)
+        angle = rect[2]
+        if rect[1][0] < rect[1][1]:
+            angle += 90.0
+        angle = angle % 180
+
+        # ---- 7. Draw ----
+        box = cv2.boxPoints(rect).astype(np.int32)
+        cv2.drawContours(image, [box], 0, (0, 255, 0), 2)
+
+        cx, cy = map(int, rect[0])
+        arrow_len = 50
+        x2 = int(cx + arrow_len * math.cos(math.radians(angle)))
+        y2 = int(cy + arrow_len * math.sin(math.radians(angle)))
+        cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
+
+        return angle, image
+
     def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
         """
         Given a contour, find the two longest straight lines,
@@ -386,8 +448,9 @@ class BlenderPoseEstimator:
 
         if points.shape[0] >= 3:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
-            oriented_angle = self.angle_from_4corners(ordered)
-            print("angle from corners:", oriented_angle)
+            #implement angle WITH drawing
+            oriented_angle, image = self.oriented_angle_from_polygon_mask(image=image,ordered_pts=ordered)
+
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
