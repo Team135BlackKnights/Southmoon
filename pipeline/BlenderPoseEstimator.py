@@ -235,7 +235,7 @@ class BlenderPoseEstimator:
         cv2.arrowedLine(image, (cx, cy), (x2, y2),
                         (255, 255, 0), 2, tipLength=0.2)
 
-        return angle, image
+        return angle+90, image
 
     def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
         """
