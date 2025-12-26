@@ -387,6 +387,7 @@ class BlenderPoseEstimator:
         if points.shape[0] >= 3:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
             oriented_angle = self.angle_from_4corners(ordered)
+            print("angle from corners:", oriented_angle)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
