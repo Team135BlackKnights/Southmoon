@@ -368,7 +368,7 @@ class BlenderPoseEstimator:
                         p2 = tuple(box[(i + 1) % 4])
                         cv2.line(image, p1, p2, (0, 255, 0), 2)
 
-                    arrow_len = 50
+                    arrow_len = 250
                     direction = math.radians(oriented_angle)
                     center_pt = (int(cx), int(cy))
                     arrow_tip = (
