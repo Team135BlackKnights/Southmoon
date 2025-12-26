@@ -129,16 +129,15 @@ def objdetect_worker(
                         best_position = None
                         best_debug = ''
                         for obs in observations:
-                            if obs.ai_id == config.remote_config.obj_blender_ai_id:
-                                position, cand_debug = pose_estimator.estimate_ai_position(obs, config)
-                                if position is None:
-                                    continue
-                                xy = np.asarray(position[:2], dtype=float)
-                                dist = np.linalg.norm(xy)
-                                if dist < lowest_dist:
-                                    lowest_dist = dist
-                                    best_position = position
-                                    best_debug = cand_debug
+                            position, cand_debug = pose_estimator.estimate_ai_position(obs, config)
+                            if position is None:
+                                continue
+                            xy = np.asarray(position[:2], dtype=float)
+                            dist = np.linalg.norm(xy)
+                            if dist < lowest_dist:
+                                lowest_dist = dist
+                                best_position = position
+                                best_debug = cand_debug
                         position = best_position
                         debug = best_debug if best_position is not None else "No matching observation"
                         if position is not None:
