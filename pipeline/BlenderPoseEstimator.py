@@ -110,7 +110,6 @@ class BlenderPoseEstimator:
             
             # Check if any row is found
             if not filtered_df.empty:
-                print(f"Found rows with tolerance: {tolerance}")
                 return filtered_df, tolerance
             
             # Increase the tolerance and try again
@@ -242,7 +241,6 @@ class BlenderPoseEstimator:
             
             # Check if any row is found
             if not filtered_df.empty:
-                print(f"Found rows with tolerance: {tolerance}")
                 return filtered_df, tolerance
             
             # Increase the tolerance and try again
