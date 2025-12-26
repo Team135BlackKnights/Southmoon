@@ -351,12 +351,11 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            # Order corners around the centroid so adjacent segments follow the perimeter
-            centroid = np.mean(points, axis=0)
-            angles = np.arctan2(points[:, 1] - centroid[1], points[:, 0] - centroid[0])
-            order = np.argsort(angles)
-            ordered = points[order].reshape(-1, 1, 2).astype(np.int32)
-            oriented_angle, image = self.find_oriented_angle(ordered, image)
+            # Derive a consistent rectangle order via minAreaRect so the debug edges render correctly.
+            contour = points.reshape(-1, 1, 2).astype(np.float32)
+            rect = cv2.minAreaRect(contour)
+            box = cv2.boxPoints(rect).astype(np.int32).reshape(-1, 1, 2)
+            oriented_angle, image = self.find_oriented_angle(box, image)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
