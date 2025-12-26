@@ -263,8 +263,6 @@ class BlenderPoseEstimator:
         oriented_angle: float | None,
     ):
         """Resolve the best dataframe match for a detected rectangle."""
-        if self.lookup_df is None or self.lookup_df.empty:
-            return None
 
         if config.local_config.obj_use_oriented_detection and oriented_angle is not None:
             target = {
@@ -274,7 +272,7 @@ class BlenderPoseEstimator:
                 'Height': height,
                 'Image_Angle': oriented_angle,
             }
-            filtered_df, _ = self.find_oriented_matching_rows(target, start_tol=10, max_tol=40, step=3)
+            filtered_df, _ = self.find_oriented_matching_rows(target, start_tol=25, max_tol=90, step=3)
             if filtered_df.empty:
                 return None
             return [
@@ -319,14 +317,17 @@ class BlenderPoseEstimator:
             return None, debug_image, 'No orientation'
         if self.lookup_df is None or self.lookup_df.empty:
             return None, debug_image, 'No lookup data'
-        return self._match_position_from_rect(
+        result = self._match_position_from_rect(
             config=config,
             center_x=float(center_x),
             center_y=float(center_y),
             width=float(width),
             height=float(height),
             oriented_angle=oriented_angle,
-        ), debug_image, ''
+        )
+        if result is None:
+            return None, debug_image, 'No picture in tolerance'
+        return result, debug_image, ''     
     def estimate_ai_position(
         self,
         image_observation: ObjDetectObservation, 
@@ -353,14 +354,17 @@ class BlenderPoseEstimator:
         if points.shape[0] >= 3:
             contour = points.reshape(-1, 1, 2).astype(np.int32)
             oriented_angle, _ = self.find_oriented_angle(contour)
-        return self._match_position_from_rect(
+        result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
             center_y=center_y,
             width=width,
             height=height,
             oriented_angle=oriented_angle,
-        ), ''
+        )
+        if result is None:
+            return None,'No picture in tolerance'
+        return result, ''
     def position_to_field_pose(
         self,
         position: dict,
