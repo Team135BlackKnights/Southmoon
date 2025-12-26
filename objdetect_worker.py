@@ -90,7 +90,7 @@ def objdetect_worker(
 
             if detector is None and config.local_config.obj_detect_model != "":
                 model_path = config.local_config.obj_detect_model
-                print(f"[ObjDetectWorker] Loading CoreML model: {model_path}")
+                print(f"[ObjDetectWorker] Loading CoreML model: {model_path}") #/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage
                 detector = CoreMLObjectDetector(model_path)
             if pose_estimator is None:
                 print(f"[ObjDetectWorker] Initializing Pose Estimator...")

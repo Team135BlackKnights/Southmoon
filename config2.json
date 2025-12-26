@@ -5,10 +5,10 @@
   "objdetect_stream_port": 8003,
   "capture_impl": "usb",
   "obj_detect_model": "",
-  "obj_blender_lookup_csv": "/Users/pennrobotics/Documents/GitHub/Southmoon/blender_bumper_lookups.csv",
+  "obj_blender_lookup_csv": "/Users/pennrobotics/Documents/GitHub/Southmoon/FullData.csv",
   "obj_use_oriented_detection": true,
   "obj_detect_max_fps": 10,
   "apriltags_enable": true,
-  "objdetect_enable": false,
+  "objdetect_enable": true,
   "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
 }
