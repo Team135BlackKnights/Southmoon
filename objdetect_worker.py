@@ -109,35 +109,49 @@ def objdetect_worker(
 
             # Copy frame from shared memory
             image = frame_buf.copy()  
+            observations = []
             if detector is None:
                 #pose_estimator MUST be BlenderPoseEstimator if no detector
                 #use hsv thresholds to find oriented bounding rect
-                position,image,debug = pose_estimator.estimate_position(image, config)
-                pose_obs,debug = pose_estimator.position_to_field_pose(position,config,debug)
+                position, image, debug = pose_estimator.estimate_position(image, config)
+                if position is not None:
+                    pose_obs, debug = pose_estimator.position_to_field_pose(position, config, debug)
+                else:
+                    pose_obs = None
             else:
-                observations = detector.detect(image, config)
-                if observations is not None and len(observations) >0:  
+                detections = detector.detect(image, config)
+                if detections is not None:
+                    observations = detections
+                if observations:
                     if type(pose_estimator) is BlenderPoseEstimator:
                         #find the biggest CORRECT observation
                         lowest_dist = float('inf')
                         best_position = None
+                        best_debug = ''
                         for obs in observations:
                             if obs.ai_id == config.remote_config.obj_blender_ai_id:
-                                position,debug = pose_estimator.estimate_ai_position(obs, config)
+                                position, cand_debug = pose_estimator.estimate_ai_position(obs, config)
+                                if position is None:
+                                    continue
                                 xy = np.asarray(position[:2], dtype=float)
                                 dist = np.linalg.norm(xy)
                                 if dist < lowest_dist:
                                     lowest_dist = dist
                                     best_position = position
+                                    best_debug = cand_debug
                         position = best_position
-                        pose_obs,debug = pose_estimator.position_to_field_pose(position,config,debug)
+                        debug = best_debug if best_position is not None else "No matching observation"
+                        if position is not None:
+                            pose_obs, debug = pose_estimator.position_to_field_pose(position, config, debug)
+                        else:
+                            pose_obs = None
                     else:            
-                        pose_obs,debug = pose_estimator.solve_camera_pose(observations, config)
+                        pose_obs, debug = pose_estimator.solve_camera_pose(observations, config)
                 else:
                     #we have no obs, so pose is None
                     pose_obs = None
                     debug = "NA IO"
-            pose_serial,debug = _serialize_pose(pose_obs,debug)
+            pose_serial, debug = _serialize_pose(pose_obs, debug)
             # Send results to main process
             try:
                 q_out.put((timestamp, observations, pose_serial,debug), block=False)
