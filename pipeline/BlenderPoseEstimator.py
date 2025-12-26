@@ -118,7 +118,41 @@ class BlenderPoseEstimator:
         # No rows found within maximum tolerance
         print("No rows found within the max tolerance.")
         return self.lookup_df.iloc[[]], tolerance  # Return an empty DataFrame
+    def angle_from_4corners(self,corners):
+        """
+        corners: (4,2) np.array in any order but ideally TL,TR,BR,BL or similar.
+        returns angle in degrees in image coords (y down).
+        """
+        pts = np.asarray(corners, dtype=np.float32).reshape(4,2)
+        # Attempt to sort to consistent winding: by x then y (simple)
+        # A better approach is to order by arclength around centroid
+        c = np.mean(pts, axis=0)
+        # sort by angle around centroid
+        angles = np.arctan2(pts[:,1]-c[1], pts[:,0]-c[0])
+        order = np.argsort(angles)
+        p = pts[order]
 
+        # get four edges (wrap)
+        edges = []
+        for i in range(4):
+            p1 = p[i]
+            p2 = p[(i+1)%4]
+            dx = p2[0]-p1[0]
+            dy = p2[1]-p1[1]
+            length = math.hypot(dx, dy)
+            angle = math.degrees(math.atan2(dy, dx))
+            edges.append((length, angle))
+
+        # pick two longest edges and compute circular mean
+        edges.sort(reverse=True, key=lambda e: e[0])
+        long_angles = [edges[0][1], edges[1][1]]
+        # circular mean
+        a_rad = np.radians(long_angles)
+        x = np.mean(np.cos(a_rad))
+        y = np.mean(np.sin(a_rad))
+        avg = math.degrees(math.atan2(y,x))
+        # normalize to [0,180) if you want
+        return (avg + 360) % 180
     def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
         """
         Given a contour, find the two longest straight lines,
@@ -352,8 +386,7 @@ class BlenderPoseEstimator:
 
         if points.shape[0] >= 3:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
-            contour = ordered.reshape(-1,1,2).astype(np.int32)
-            oriented_angle, image = self.find_oriented_angle(contour, image)
+            oriented_angle = self.angle_from_4corners(ordered)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
