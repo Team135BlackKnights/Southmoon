@@ -7,7 +7,7 @@
   "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/coral_v1.mlmodel",
   "obj_blender_lookup_csv": "/Users/pennrobotics/Documents/GitHub/Southmoon/FullData.csv",
   "obj_use_oriented_detection": true,
-  "obj_detect_max_fps": 10,
+  "obj_detect_max_fps": 30,
   "apriltags_enable": true,
   "objdetect_enable": true,
   "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
