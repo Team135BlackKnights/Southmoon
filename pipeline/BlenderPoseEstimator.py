@@ -379,9 +379,11 @@ class BlenderPoseEstimator:
             rel_q = self._yaw_to_quaternion(rel_yaw)
             field_q = self._multiply_quaternions(p0_q, rel_q)
             pose = Pose3d(
-                Translation3d(position[0] + p0_t[0], position[1] + p0_t[1], p0_t[2]),
+                Translation3d(position[0] + p0_t[0], position[1] + p0_t[1], 0.051),
                 Rotation3d(Quaternion(field_q[0], field_q[1], field_q[2], field_q[3])),
             )
+            print(f"Distance to object: x={position[0]:.2f} m, y={position[1]:.2f} m, angle={rel_yaw:.2f} rad")
+            print (f"Estimated field pose: x={pose.translation.x:.2f}, y={pose.translation.y:.2f}, yaw={pose.rotation.toEulerAngles()[2]:.2f} rad")
             
             return CameraPoseObservation(
                 tag_ids= [-1],
