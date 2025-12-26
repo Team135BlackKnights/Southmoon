@@ -129,7 +129,7 @@ def objdetect_worker(
                         best_position = None
                         best_debug = ''
                         for obs in observations:
-                            position, cand_image, cand_debug = pose_estimator.estimate_ai_position(obs, config)
+                            position, cand_image, cand_debug = pose_estimator.estimate_ai_position(obs, image, config)
                             if position is None:
                                 continue
                             xy = np.asarray(position[:2], dtype=float)
