@@ -4,7 +4,7 @@
   "apriltags_stream_port": 8000,
   "objdetect_stream_port": 8001,
   "capture_impl": "usb",
-  "obj_detect_model": "",
+  "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/coral_v1.mlmodel",
   "obj_blender_lookup_csv": "/Users/pennrobotics/Documents/GitHub/Southmoon/FullData.csv",
   "obj_use_oriented_detection": true,
   "obj_detect_max_fps": 10,
