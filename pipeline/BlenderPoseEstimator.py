@@ -365,8 +365,8 @@ class BlenderPoseEstimator:
                 # Draw all four edges FIRST before any other processing
                 if image is not None:
                     for i in range(4):
-                        p1 = tuple(ordered[i])
-                        p2 = tuple(ordered[(i + 1) % 4])
+                        p1 = (int(ordered[i][0]), int(ordered[i][1]))
+                        p2 = (int(ordered[(i + 1) % 4][0]), int(ordered[(i + 1) % 4][1]))
                         print(f"[AI Debug] Drawing line {i}: {p1} -> {p2}")
                         cv2.line(image, p1, p2, (0, 255, 0), 2)
                 
