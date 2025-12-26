@@ -11,8 +11,10 @@ from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion, Tran
 
 class BlenderPoseEstimator:
     lookup_df: pd.DataFrame
+    last_ai_angle: float | None
     def __init__(self, blender_lookup_csv: str) -> None:
         self.lookup_df = pd.read_csv(blender_lookup_csv)
+        self._last_ai_angle = None
         print("[BlenderPoseEstimator] Blender lookup CSV loaded")
 
     def _unpack_pose3d(self, pose3d: List[float]):
@@ -118,6 +120,25 @@ class BlenderPoseEstimator:
         # No rows found within maximum tolerance
         print("No rows found within the max tolerance.")
         return self.lookup_df.iloc[[]], tolerance  # Return an empty DataFrame
+    def smooth_angle(self, new_angle, alpha=0.25):
+        """
+        Exponential moving average on circular angle [0,180)
+        alpha = responsiveness (lower = smoother)
+        """
+        if new_angle is None:
+            return self._last_ai_angle
+
+        if self._last_ai_angle is None:
+            self._last_ai_angle = new_angle
+            return new_angle
+
+        # unwrap to avoid 180 discontinuity
+        diff = ((new_angle - self._last_ai_angle + 90) % 180) - 90
+        smoothed = (self._last_ai_angle + alpha * diff) % 180
+
+        self._last_ai_angle = smoothed
+        return smoothed
+
     def oriented_angle_from_polygon_mask(
         self,
         image: np.ndarray,
@@ -226,7 +247,7 @@ class BlenderPoseEstimator:
         d2 = min(abs(a2 - corner_angle), 180 - abs(a2 - corner_angle))
 
         angle = a1 if d1 < d2 else a2
-
+        angle = self.smooth_angle(angle)
         # ---- 8. Draw final arrow (yellow) ----
         cx, cy = mean.astype(int)
         arrow_len = 50
@@ -235,7 +256,7 @@ class BlenderPoseEstimator:
         cv2.arrowedLine(image, (cx, cy), (x2, y2),
                         (255, 255, 0), 2, tipLength=0.2)
 
-        return angle+90, image
+        return angle, image
 
     def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
         """
