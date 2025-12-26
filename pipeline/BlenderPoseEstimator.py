@@ -12,9 +12,11 @@ from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion, Tran
 class BlenderPoseEstimator:
     lookup_df: pd.DataFrame
     last_ai_angle: float | None
+    last_mask_center: tuple[int, int] | None
     def __init__(self, blender_lookup_csv: str) -> None:
         self.lookup_df = pd.read_csv(blender_lookup_csv)
         self._last_ai_angle = None
+        self._last_mask_center = None
         print("[BlenderPoseEstimator] Blender lookup CSV loaded")
 
     def _unpack_pose3d(self, pose3d: List[float]):
@@ -150,16 +152,12 @@ class BlenderPoseEstimator:
         """
 
         h, w = image.shape[:2]
-
-        # ---- 1. Draw polygon (magenta) ----
         poly_int = ordered_pts.astype(np.int32)
         cv2.polylines(image, [poly_int], True, (255, 0, 255), 2)
 
-        # ---- 2. Polygon mask ----
         poly_mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(poly_mask, [poly_int], 255)
 
-        # ---- 3. Crop ROI ----
         x, y, bw, bh = cv2.boundingRect(poly_int)
         roi = image[y:y+bh, x:x+bw]
         roi_mask = poly_mask[y:y+bh, x:x+bw]
@@ -167,7 +165,6 @@ class BlenderPoseEstimator:
         if roi.size == 0:
             return None, image
 
-        # ---- 4. Adaptive HSV threshold (local) ----
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         pixels = hsv[roi_mask > 0]
         if pixels.size == 0:
@@ -181,8 +178,7 @@ class BlenderPoseEstimator:
         dS = min(120, max(30, int(k * std[1])))
         dV = min(120, max(30, int(k * std[2])))
 
-        # White-object handling
-        if median[1] < 40:
+        if median[1] < 40:  # white object
             lower = np.array([0, 0, max(0, median[2] - dV)], dtype=np.uint8)
             upper = np.array([179, dS, min(255, median[2] + dV)], dtype=np.uint8)
         else:
@@ -217,97 +213,51 @@ class BlenderPoseEstimator:
         c[:, 0, 0] += x
         c[:, 0, 1] += y
 
-        # ---- 6. Pixel-based axis (PCA, no 90° choice yet) ----
-        pts = c.reshape(-1, 2).astype(np.float32)
-        mean = np.mean(pts, axis=0)
-        cov = np.cov((pts - mean).T)
-        eigvals, eigvecs = np.linalg.eig(cov)
-        principal = eigvecs[:, np.argmax(eigvals)]
-        pixel_angle = (math.degrees(math.atan2(principal[1], principal[0])) + 360) % 180
+        M = cv2.moments(c)
+        if M["m00"] > 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            self._last_mask_center = (cx, cy)
+            cv2.circle(image, (cx, cy), 3, (255, 0, 0), -1)
 
-        # ---- 7. Corner-based axis (disambiguation) ----
+        if len(c) < 5:
+            return None, image
+
+        ellipse = cv2.fitEllipse(c)
+        (_, _), (MA, ma), angle = ellipse
+
+        if MA < ma:
+            angle = (angle + 90) % 180
+
+        angle = angle % 180
+
         edges = []
         for i in range(4):
             p1 = ordered_pts[i]
             p2 = ordered_pts[(i + 1) % 4]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
+            dx, dy = p2 - p1
             length = math.hypot(dx, dy)
-            angle = (math.degrees(math.atan2(dy, dx)) + 360) % 180
-            edges.append((length, angle))
+            edge_angle = (math.degrees(math.atan2(dy, dx)) + 360) % 180
+            edges.append((length, edge_angle))
 
         edges.sort(reverse=True, key=lambda e: e[0])
         corner_angle = edges[0][1]
 
-        # choose between θ and θ+90
-        a1 = pixel_angle
-        a2 = (pixel_angle + 90) % 180
-
+        a1 = angle
+        a2 = (angle + 90) % 180
         d1 = min(abs(a1 - corner_angle), 180 - abs(a1 - corner_angle))
         d2 = min(abs(a2 - corner_angle), 180 - abs(a2 - corner_angle))
-
         angle = a1 if d1 < d2 else a2
-        angle = self.smooth_angle(angle+90)
-        # ---- 8. Draw final arrow (yellow) ----
-        cx, cy = mean.astype(int)
+
+        angle = self.smooth_angle(angle)
+
         arrow_len = 50
         x2 = int(cx + arrow_len * math.cos(math.radians(angle)))
         y2 = int(cy + arrow_len * math.sin(math.radians(angle)))
-        cv2.arrowedLine(image, (cx, cy), (x2, y2),
-                        (255, 255, 0), 2, tipLength=0.2)
+        cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
 
         return angle, image
 
-    def find_oriented_angle(self, contour, image: NDArray[np.uint8] | None = None): 
-        """
-        Given a contour, find the two longest straight lines,
-        average their directions, and return the dominant angle in degrees.
-        """
-        if len(contour) < 2:
-            return None, image
-
-        # 1. Simplify contour (remove small jitter)
-        epsilon = 0.01 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
-
-        # 2. Collect line segments and their angles
-        lines = []
-        for i in range(len(approx)):
-            p1 = approx[i][0]
-            p2 = approx[(i + 1) % len(approx)][0]  # wrap around
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            length = math.hypot(dx, dy)
-            if length > 2:  # ignore tiny edges
-                angle = math.degrees(math.atan2(dy, dx))
-                lines.append((length, angle, p1, p2))
-
-        if len(lines) < 2:
-            return None, image
-
-        # 3. Take two longest lines
-        lines.sort(reverse=True, key=lambda x: x[0])
-        longest = lines[:2]
-
-        # 4. Compute average direction
-        # Handle circular mean (avoid averaging 179° and -179° to get 0°)
-        angles = [math.radians(l[1]) for l in longest]
-        x_mean = np.mean([math.cos(a) for a in angles])
-        y_mean = np.mean([math.sin(a) for a in angles])
-        avg_angle = math.degrees(math.atan2(y_mean, x_mean))
-
-        avg_angle = (avg_angle + 360 + 90) % 180  # normalize to [0, 180)
-        # 5. Draw if can
-        if image is not None:
-            for _, angle, p1, p2 in longest:
-                cv2.line(image, tuple(p1), tuple(p2), (0, 255, 0), 2)
-                # Draw the averaged orientation line at the contour center
-                cx, cy = np.mean(approx[:, 0, :], axis=0).astype(int)
-                length = 50
-                x2 = int(cx + length * math.cos(math.radians(avg_angle)))
-                y2 = int(cy + length * math.sin(math.radians(avg_angle)))
-                cv2.arrowedLine(image, (cx, cy), (x2, y2), (255, 255, 0), 2, tipLength=0.2)
-        return avg_angle, image
     def find_oriented_bounding_rect(self, image, lower_color, upper_color):
         """    Detects the largest contour of a specified color in the image and returns its bounding rectangle.
         Args:
@@ -493,6 +443,10 @@ class BlenderPoseEstimator:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
             #implement angle WITH drawing
             oriented_angle, image = self.oriented_angle_from_polygon_mask(image=image,ordered_pts=ordered)
+            if self._last_mask_center is not None:
+                cx, cy = self._last_mask_center
+                center_x = float(cx)
+                center_y = float(cy)
 
         result = self._match_position_from_rect(
             config=config_store,
