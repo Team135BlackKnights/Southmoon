@@ -351,11 +351,31 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            # Derive a consistent rectangle order via minAreaRect so the debug edges render correctly.
             contour = points.reshape(-1, 1, 2).astype(np.float32)
             rect = cv2.minAreaRect(contour)
-            box = cv2.boxPoints(rect).astype(np.int32).reshape(-1, 1, 2)
-            oriented_angle, image = self.find_oriented_angle(box, image)
+            (cx, cy), (w, h), raw_angle = rect
+            if w == 0.0 or h == 0.0:
+                oriented_angle = None
+            else:
+                # minAreaRect returns angle in [-90, 0); rotate to match the image-based convention.
+                oriented_angle = raw_angle + 90.0 if w < h else raw_angle
+                oriented_angle = (oriented_angle + 360.0) % 180.0
+
+                if image is not None:
+                    box = cv2.boxPoints(rect).astype(np.int32)
+                    for i in range(4):
+                        p1 = tuple(box[i])
+                        p2 = tuple(box[(i + 1) % 4])
+                        cv2.line(image, p1, p2, (0, 255, 0), 2)
+
+                    arrow_len = 50
+                    direction = math.radians(oriented_angle)
+                    center_pt = (int(cx), int(cy))
+                    arrow_tip = (
+                        int(center_pt[0] + arrow_len * math.cos(direction)),
+                        int(center_pt[1] + arrow_len * math.sin(direction)),
+                    )
+                    cv2.arrowedLine(image, center_pt, arrow_tip, (255, 255, 0), 2, tipLength=0.2)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
