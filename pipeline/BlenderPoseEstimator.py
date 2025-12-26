@@ -387,7 +387,7 @@ class BlenderPoseEstimator:
                 Rotation3d(Quaternion(p0_q[0], p0_q[1], p0_q[2], p0_q[3])),
             )
             relative_transform = Transform3d(
-                Translation3d(position[0], position[1], 0.0),
+                Translation3d(position[1], position[0], 0.0),
                 Rotation3d(Quaternion(rel_q[0], rel_q[1], rel_q[2], rel_q[3])),
             )
 
