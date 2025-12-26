@@ -442,7 +442,8 @@ class BlenderPoseEstimator:
         if points.shape[0] >= 3:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
             #implement angle WITH drawing
-            oriented_angle, image = self.oriented_angle_from_polygon_mask(image=image,ordered_pts=ordered)+90 #don't look
+            oriented_angle, image = self.oriented_angle_from_polygon_mask(image=image,ordered_pts=ordered)
+            oriented_angle += 90
             if self._last_mask_center is not None:
                 cx, cy = self._last_mask_center
                 center_x = float(cx)
