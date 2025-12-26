@@ -353,10 +353,10 @@ class BlenderPoseEstimator:
         if points.shape[0] >= 3:
             # Order the corners around the perimeter and draw all edges so we avoid the X-shaped diagonals.
             contour = points.reshape(-1, 1, 2).astype(np.float32)
-            #hull = cv2.convexHull(contour)  # ensures perimeter order
+            hull = cv2.convexHull(contour)  # ensures perimeter order
 
             # Compute orientation from the minimum-area rectangle for stability.
-            rect = cv2.minAreaRect(contour)
+            rect = cv2.minAreaRect(hull)
             (cx, cy), (w, h), raw_angle = rect
             if w == 0.0 or h == 0.0:
                 oriented_angle = None
