@@ -476,17 +476,17 @@ class BlenderPoseEstimator:
             out: dict = {}
             p0_t, p0_q = self._unpack_pose3d(config.remote_config.field_camera_pose)
             rel_yaw = float(position[2]) if len(position) > 2 else 0.0
-            rel_q = self._yaw_to_quaternion(rel_yaw)
-
             camera_pose = Pose3d(
                 Translation3d(p0_t[0], p0_t[1], p0_t[2]),
                 Rotation3d(Quaternion(p0_q[0], p0_q[1], p0_q[2], p0_q[3])),
             )
+            #add 90 degrees to match field coords
+            field_yaw = (rel_yaw + 90.0) % 360.
+            field_q = self._yaw_to_quaternion(field_yaw)
             relative_transform = Transform3d(
                 Translation3d(position[1], -position[0], 0.0),
-                Rotation3d(Quaternion(rel_q[0], rel_q[1], rel_q[2], rel_q[3])),
+                Rotation3d(Quaternion(field_q[0], field_q[1], field_q[2], field_q[3])),
             )
-
             field_pose = camera_pose.transformBy(relative_transform)
             pose = Pose3d(
                 Translation3d(field_pose.translation().x, field_pose.translation().y, 0.051),
