@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 from config.config import ConfigStore
 from vision_types import CameraPoseObservation, ObjDetectObservation
 import pandas as pd
-from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion
+from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion, Transform3d
 
 class BlenderPoseEstimator:
     lookup_df: pd.DataFrame
@@ -373,17 +373,29 @@ class BlenderPoseEstimator:
         Convert a detected position to a field pose observation.
         """
         try:
+            #negative x = to camera left in m
+            #x = 0 is camera center
+            #positive is camera right in m
+            #postive y = to camera forward in m
             out: dict = {}
             p0_t, p0_q = self._unpack_pose3d(config.remote_config.field_camera_pose)
             rel_yaw = float(position[2]) if len(position) > 2 else 0.0
             rel_q = self._yaw_to_quaternion(rel_yaw)
-            field_q = self._multiply_quaternions(p0_q, rel_q)
-            pose = Pose3d(
-                Translation3d(position[0] + p0_t[0], position[1] + p0_t[1], 0.051),
-                Rotation3d(Quaternion(field_q[0], field_q[1], field_q[2], field_q[3])),
+
+            camera_pose = Pose3d(
+                Translation3d(p0_t[0], p0_t[1], p0_t[2]),
+                Rotation3d(Quaternion(p0_q[0], p0_q[1], p0_q[2], p0_q[3])),
             )
-            print(f"Distance to object: x={position[0]:.2f} m, y={position[1]:.2f} m, angle={rel_yaw:.2f} rad")
-            print (f"Estimated field pose: x={pose.translation.x:.2f}, y={pose.translation.y:.2f}, yaw={pose.rotation.toEulerAngles()[2]:.2f} rad")
+            relative_transform = Transform3d(
+                Translation3d(position[0], position[1], 0.0),
+                Rotation3d(Quaternion(rel_q[0], rel_q[1], rel_q[2], rel_q[3])),
+            )
+
+            field_pose = camera_pose.transformBy(relative_transform)
+            pose = Pose3d(
+                Translation3d(field_pose.translation().x, field_pose.translation().y, 0.051),
+                field_pose.rotation(),
+            )
             
             return CameraPoseObservation(
                 tag_ids= [-1],
