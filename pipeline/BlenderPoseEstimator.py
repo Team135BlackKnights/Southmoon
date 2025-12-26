@@ -246,8 +246,8 @@ class BlenderPoseEstimator:
         d1 = min(abs(a1 - corner_angle), 180 - abs(a1 - corner_angle))
         d2 = min(abs(a2 - corner_angle), 180 - abs(a2 - corner_angle))
 
-        angle = a1 if d1 > d2 else a2
-        angle = self.smooth_angle(angle)
+        angle = a1 if d1 < d2 else a2
+        angle = self.smooth_angle(angle+90)
         # ---- 8. Draw final arrow (yellow) ----
         cx, cy = mean.astype(int)
         arrow_len = 50
