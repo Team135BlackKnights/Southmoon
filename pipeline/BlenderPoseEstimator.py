@@ -351,24 +351,16 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            # If we have four corners, order them TL, TR, BR, BL to form the perimeter; otherwise fall back to hull.
+            # AI corners are: TL(0), TR(1), BL(2), BR(3) - reorder to perimeter: TL, TR, BR, BL
             if points.shape[0] == 4:
-                rect = np.zeros((4, 2), dtype=np.float32)
-                s = points.sum(axis=1)
-                rect[0] = points[np.argmin(s)]  # top-left
-                rect[2] = points[np.argmax(s)]  # bottom-right
-                diff = np.diff(points, axis=1)
-                rect[1] = points[np.argmin(diff)]  # top-right
-                rect[3] = points[np.argmax(diff)]  # bottom-left
-                contour = rect.astype(np.int32).reshape(-1, 1, 2)
+                contour = np.array([
+                    points[0],  # TL
+                    points[1],  # TR
+                    points[3],  # BR
+                    points[2],  # BL
+                ], dtype=np.int32).reshape(-1, 1, 2)
             else:
                 contour = cv2.convexHull(points.reshape(-1, 1, 2).astype(np.int32))
-
-            # Draw all edges explicitly so they appear in debug output.
-            if image is not None:
-                pts = contour.reshape(-1, 2)
-                for i in range(len(pts)):
-                    cv2.line(image, tuple(pts[i]), tuple(pts[(i + 1) % len(pts)]), (0, 255, 0), 2)
 
             oriented_angle, image = self.find_oriented_angle(contour, image)
         result = self._match_position_from_rect(
