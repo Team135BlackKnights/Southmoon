@@ -351,9 +351,36 @@ class BlenderPoseEstimator:
         oriented_angle: float | None = None
 
         if points.shape[0] >= 3:
-            # Match the HSV path: use a perimeter contour (convex hull) so find_oriented_angle can draw edges.
-            contour = cv2.convexHull(points.reshape(-1, 1, 2).astype(np.int32))
-            oriented_angle, image = self.find_oriented_angle(contour, image)
+            # Order the corners around the perimeter and draw all edges so we avoid the X-shaped diagonals.
+            contour = points.reshape(-1, 1, 2).astype(np.float32)
+            #hull = cv2.convexHull(contour)  # ensures perimeter order
+
+            # Compute orientation from the minimum-area rectangle for stability.
+            rect = cv2.minAreaRect(contour)
+            (cx, cy), (w, h), raw_angle = rect
+            if w == 0.0 or h == 0.0:
+                oriented_angle = None
+            else:
+                oriented_angle = raw_angle + 90.0 if w < h else raw_angle
+                oriented_angle = (oriented_angle + 360.0) % 180.0
+
+                if image is not None:
+                    # Draw perimeter edges (green) using the hull, not diagonals.
+                    ordered = hull.astype(np.int32).reshape(-1, 2)
+                    for i in range(len(ordered)):
+                        p1 = tuple(ordered[i])
+                        p2 = tuple(ordered[(i + 1) % len(ordered)])
+                        cv2.line(image, p1, p2, (0, 255, 0), 2)
+
+                    # Draw heading arrow (yellow) from the rect center.
+                    arrow_len = 50
+                    direction = math.radians(oriented_angle)
+                    center_pt = (int(cx), int(cy))
+                    arrow_tip = (
+                        int(center_pt[0] + arrow_len * math.cos(direction)),
+                        int(center_pt[1] + arrow_len * math.sin(direction)),
+                    )
+                    cv2.arrowedLine(image, center_pt, arrow_tip, (255, 255, 0), 2, tipLength=0.2)
         result = self._match_position_from_rect(
             config=config_store,
             center_x=center_x,
