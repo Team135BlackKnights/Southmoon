@@ -16,3 +16,4 @@ yolov8x.pt
 /setup/robot-bumpers
 /best.mlpackage
 /halved.mlpackage
+/setup/FuelYOLO26
