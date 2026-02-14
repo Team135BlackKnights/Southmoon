@@ -94,7 +94,7 @@ class CoreMLObjectDetector(ObjectDetector):
         if image.ndim == 2 or image.shape[2] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         elif image.shape[2] == 4:
-            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
 
         # Create letterboxed input (reused buffer to avoid allocations)
         input_image = self._letterbox_resize_into_buffer(image)

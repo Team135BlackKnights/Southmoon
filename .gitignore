@@ -17,3 +17,4 @@ yolov8x.pt
 /best.mlpackage
 /halved.mlpackage
 /setup/FuelYOLO26
+/setup/runs
