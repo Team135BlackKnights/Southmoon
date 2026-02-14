@@ -40,7 +40,6 @@ def main() -> int:
         default="",
         help="Optional: path to data.yaml for INT8 calibration. Strongly recommended if --int8.",
     )
-    p.add_argument("--calib-fraction", type=float, default=0.2)
 
     args = p.parse_args()
 
@@ -70,8 +69,7 @@ def main() -> int:
             if not data.exists():
                 raise FileNotFoundError(f"data.yaml not found: {data}")
             export_kwargs["data"] = str(data)
-            export_kwargs["fraction"] = float(args.calib_fraction)
-
+ 
     print(f"[export_coreml.py] Exporting with: {export_kwargs}")
     try:
         model.export(**export_kwargs)
