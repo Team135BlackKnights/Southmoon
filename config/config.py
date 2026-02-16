@@ -23,6 +23,7 @@ class LocalConfig:
     obj_use_oriented_detection: bool = False    
     obj_detect_max_fps: int = -1
     obj_detect_min_conf: float = 0.05
+    obj_detect_target_z_m: float = 0.0762
     objdetect_tx_ty_only: bool = False
     apriltags_enable: bool = False
     objdetect_enable: bool = True

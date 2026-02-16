@@ -58,3 +58,4 @@ class ObjDetectTxyObservation:
     confidence: float
     tx_deg: float
     ty_deg: float
+    distance_m: float

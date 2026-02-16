@@ -314,18 +314,96 @@ class CoreMLObjectDetector(ObjectDetector):
 
 
 
-def compute_tx_ty_deg(observation: ObjDetectObservation) -> Optional[Tuple[float, float]]:
+def _quat_to_rotmat(q):
+    qw, qx, qy, qz = q
+    n = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+    if n == 0:
+        raise ValueError("zero quaternion")
+    qw, qx, qy, qz = qw / n, qx / n, qy / n, qz / n
+    R = np.array(
+        [
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+        ],
+        dtype=float,
+    )
+    return R
+
+
+def compute_tx_ty_distance(
+    observation: ObjDetectObservation, config: ConfigStore
+) -> Optional[Tuple[float, float, float]]:
     """
-    Compute horizontal/vertical angular offsets (degrees) from camera crosshair to
-    detection center. Positive Ty is up. Uses existing corner_angles from detect
-    to avoid re-running undistortion.
+    Compute tx/ty (degrees) and distance (meters).
+    Distance uses size-based estimate from bbox height when possible.
+    Positive Ty is up. Returns distance -1.0 if invalid.
     """
     if observation.corner_angles is None:
         return None
     angles = np.asarray(observation.corner_angles, dtype=np.float64)
     if angles.size == 0 or angles.shape[-1] != 2:
         return None
+
     center = angles.mean(axis=0)
-    tx_deg = math.degrees(float(center[0]))
-    ty_deg = -math.degrees(float(center[1]))
-    return tx_deg, ty_deg
+    tx_rad = float(center[0])
+    ty_rad = float(center[1])  # OpenCV camera frame: +down
+
+    tx_deg = math.degrees(tx_rad)
+    ty_deg = -math.degrees(ty_rad)
+
+    # Size-based distance (prefer for reliability when looking upward)
+    if observation.corner_pixels is not None:
+        corners_px = np.asarray(observation.corner_pixels, dtype=np.float64)
+        if corners_px.size != 0 and corners_px.shape[-1] == 2:
+            min_xy = corners_px.min(axis=0)
+            max_xy = corners_px.max(axis=0)
+            bbox_h = float(max_xy[1] - min_xy[1])
+            if bbox_h > 1e-6:
+                K = config.local_config.camera_matrix
+                if K is not None:
+                    K = np.asarray(K, dtype=np.float64)
+                    if K.shape == (3, 3):
+                        fy = float(K[1, 1])
+                        # Use target height (6 in) via 2 * center height config
+                        target_z = float(getattr(config.local_config, "obj_detect_target_z_m", 0.0762))
+                        target_height = 2.0 * target_z
+                        distance_size = (target_height * fy) / bbox_h
+                        if distance_size > 0 and math.isfinite(distance_size):
+                            return tx_deg, ty_deg, float(distance_size)
+
+    pose = config.remote_config.field_camera_pose
+    if pose is None or len(pose) != 7:
+        return tx_deg, ty_deg, -1.0
+
+    cam_pos = np.array([pose[0], pose[1], pose[2]], dtype=float)
+    cam_quat = (pose[3], pose[4], pose[5], pose[6])
+
+    # Ray in OpenCV camera frame (x right, y down, z forward)
+    dir_cv = np.array([math.tan(tx_rad), math.tan(ty_rad), 1.0], dtype=float)
+    norm = np.linalg.norm(dir_cv)
+    if norm == 0:
+        return tx_deg, ty_deg, -1.0
+    dir_cv /= norm
+
+    # Convert to WPILib camera frame
+    CV_TO_WPI = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], dtype=float)
+    dir_wpi = CV_TO_WPI @ dir_cv
+
+    # Rotate into field frame
+    try:
+        R_camera_field = _quat_to_rotmat(cam_quat)
+    except Exception:
+        return tx_deg, ty_deg, -1.0
+    dir_field = R_camera_field @ dir_wpi
+
+    dz = float(dir_field[2])
+    if abs(dz) < 1e-6:
+        return tx_deg, ty_deg, -1.0
+
+    target_z = float(getattr(config.local_config, "obj_detect_target_z_m", 0.0762))
+    t = (target_z - float(cam_pos[2])) / dz
+    if t <= 0.0 or math.isnan(t) or math.isinf(t):
+        return tx_deg, ty_deg, -1.0
+
+    return tx_deg, ty_deg, float(t)

@@ -8,6 +8,8 @@
   "obj_blender_lookup_csv": "",
   "obj_use_oriented_detection": false,
   "objdetect_tx_ty_only": true,
+  "obj_detect_min_conf": 0.05,
+  "obj_detect_target_z_m": 0.0762,
   "obj_detect_max_fps": 10,
   "apriltags_enable": true,
   "objdetect_enable": false,

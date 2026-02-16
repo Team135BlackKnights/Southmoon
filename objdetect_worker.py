@@ -17,7 +17,7 @@ from output.overlay_util import overlay_obj_detect_observation
 from output.StreamServer import MjpegServer
 from pipeline.BlenderPoseEstimator import BlenderPoseEstimator
 from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
-from pipeline.ObjectDetector import CoreMLObjectDetector, compute_tx_ty_deg
+from pipeline.ObjectDetector import CoreMLObjectDetector, compute_tx_ty_distance
 from vision_types import ObjDetectObservation, ObjDetectTxyObservation
 from vision_types import CameraPoseObservation as CameraPoseObservationType
 
@@ -164,16 +164,17 @@ def objdetect_worker(
             if observations:
                 sorted_obs = sorted(observations, key=lambda o: o.confidence, reverse=True)
                 for obs in sorted_obs[:10]:
-                    txy = compute_tx_ty_deg(obs)
+                    txy = compute_tx_ty_distance(obs, config)
                     if txy is None:
                         continue
-                    tx_deg, ty_deg = txy
+                    tx_deg, ty_deg, distance_m = txy
                     txy_observations.append(
                         ObjDetectTxyObservation(
                             obj_class=obs.obj_class,
                             confidence=obs.confidence,
                             tx_deg=tx_deg,
                             ty_deg=ty_deg,
+                            distance_m=distance_m,
                         )
                     )
             # Send results to main process

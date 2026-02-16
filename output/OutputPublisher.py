@@ -190,4 +190,5 @@ class NTOutputPublisher(OutputPublisher):
             observation_data.append(float(obs.confidence))
             observation_data.append(float(obs.tx_deg))
             observation_data.append(float(obs.ty_deg))
+            observation_data.append(float(obs.distance_m))
         self._objdetect_txy_pub.set(observation_data, math.floor(timestamp * 1000000))
