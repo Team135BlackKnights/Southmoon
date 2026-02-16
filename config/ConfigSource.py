@@ -39,6 +39,7 @@ class FileConfigSource(ConfigSource):
             config_store.local_config.objdetect_enable = config_data["objdetect_enable"]
             config_store.local_config.obj_blender_lookup_csv = config_data["obj_blender_lookup_csv"]
             config_store.local_config.obj_use_oriented_detection = config_data["obj_use_oriented_detection"]
+            config_store.local_config.objdetect_tx_ty_only = config_data.get("objdetect_tx_ty_only", False)
             config_store.local_config.video_folder = config_data["video_folder"]
 
         # Get calibration

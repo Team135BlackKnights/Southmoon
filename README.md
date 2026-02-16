@@ -52,3 +52,4 @@ cat ~/apriltag_stderr.log
 
 launchctl unload ~/Library/LaunchAgents/com.apriltag.multicamera.plist
 launchctl load ~/Library/LaunchAgents/com.apriltag.multicamera.plist
+

@@ -10,7 +10,7 @@ from typing import List, Union
 
 import ntcore
 from config.config import ConfigStore
-from vision_types import CameraPoseObservation, FiducialPoseObservation, ObjDetectObservation, TagAngleObservation
+from vision_types import CameraPoseObservation, FiducialPoseObservation, ObjDetectObservation, ObjDetectTxyObservation, TagAngleObservation
 
 
 class OutputPublisher:
@@ -34,6 +34,11 @@ class OutputPublisher:
     ) -> None:
         raise NotImplementedError
 
+    def send_objdetect_txy(
+        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectTxyObservation]
+    ) -> None:
+        raise NotImplementedError
+
 
 class NTOutputPublisher(OutputPublisher):
     _init_complete: bool = False
@@ -41,6 +46,7 @@ class NTOutputPublisher(OutputPublisher):
     _apriltags_fps_pub: ntcore.IntegerPublisher
     _objdetect_fps_pub: ntcore.IntegerPublisher
     _objdetect_observations_pub: ntcore.DoubleArrayPublisher
+    _objdetect_txy_pub: ntcore.DoubleArrayPublisher
 
     def _check_init(self, config: ConfigStore):
         # Initialize publishers on first call
@@ -55,6 +61,9 @@ class NTOutputPublisher(OutputPublisher):
             self._apriltags_fps_pub = nt_table.getIntegerTopic("fps_apriltags").publish()
             self._objdetect_fps_pub = nt_table.getIntegerTopic("fps_objdetect").publish()
             self._objdetect_observations_pub = nt_table.getDoubleArrayTopic("objdetect_observations").publish(
+                ntcore.PubSubOptions(periodic=0.016667, sendAll=True, keepDuplicates=True, disableRemote=True)
+            )
+            self._objdetect_txy_pub = nt_table.getDoubleArrayTopic("objdetect_txy").publish(
                 ntcore.PubSubOptions(periodic=0.016667, sendAll=True, keepDuplicates=True, disableRemote=True)
             )
 
@@ -170,3 +179,15 @@ class NTOutputPublisher(OutputPublisher):
                 observation_data.extend([0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
 
         self._objdetect_observations_pub.set(observation_data, math.floor(timestamp * 1000000))
+
+    def send_objdetect_txy(
+        self, config_store: ConfigStore, timestamp: float, observations: List[ObjDetectTxyObservation]
+    ) -> None:
+        self._check_init(config_store)
+        observation_data: List[float] = [float(len(observations))]
+        for obs in observations:
+            observation_data.append(float(obs.obj_class))
+            observation_data.append(float(obs.confidence))
+            observation_data.append(float(obs.tx_deg))
+            observation_data.append(float(obs.ty_deg))
+        self._objdetect_txy_pub.set(observation_data, math.floor(timestamp * 1000000))

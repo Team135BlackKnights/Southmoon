@@ -1,5 +1,5 @@
 {
-  "device_id": "BackRightCam",
+  "device_id": "BackLeftCam",
   "server_ip": "10.1.35.2",
   "apriltags_stream_port": 8004,
   "objdetect_stream_port": 8005,
@@ -7,6 +7,7 @@
   "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/Setup/fuel.mlpackage",
   "obj_blender_lookup_csv": "",
   "obj_use_oriented_detection": false,
+  "objdetect_tx_ty_only": true,
   "obj_detect_max_fps": 10,
   "apriltags_enable": true,
   "objdetect_enable": false,

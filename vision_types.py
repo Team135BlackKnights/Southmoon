@@ -50,3 +50,11 @@ class ObjDetectObservation:
     confidence: float
     corner_angles: numpy.typing.NDArray[numpy.float64]
     corner_pixels: numpy.typing.NDArray[numpy.float64]
+
+
+@dataclass(frozen=True)
+class ObjDetectTxyObservation:
+    obj_class: int
+    confidence: float
+    tx_deg: float
+    ty_deg: float

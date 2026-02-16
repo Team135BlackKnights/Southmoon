@@ -6,7 +6,7 @@
 # the root directory of this project.
 
 import math
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import coremltools
 import cv2
@@ -201,3 +201,20 @@ class CoreMLObjectDetector(ObjectDetector):
             observations.append(ObjDetectObservation(obj_class, confidence, corner_angles, corners))
 
         return observations
+
+
+def compute_tx_ty_deg(observation: ObjDetectObservation) -> Optional[Tuple[float, float]]:
+    """
+    Compute horizontal/vertical angular offsets (degrees) from camera crosshair to
+    detection center. Positive Ty is up. Uses existing corner_angles from detect
+    to avoid re-running undistortion.
+    """
+    if observation.corner_angles is None:
+        return None
+    angles = np.asarray(observation.corner_angles, dtype=np.float64)
+    if angles.size == 0 or angles.shape[-1] != 2:
+        return None
+    center = angles.mean(axis=0)
+    tx_deg = math.degrees(float(center[0]))
+    ty_deg = -math.degrees(float(center[1]))
+    return tx_deg, ty_deg

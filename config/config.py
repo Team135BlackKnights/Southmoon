@@ -22,6 +22,7 @@ class LocalConfig:
     obj_blender_lookup_csv: str = ""
     obj_use_oriented_detection: bool = False    
     obj_detect_max_fps: int = -1
+    objdetect_tx_ty_only: bool = False
     apriltags_enable: bool = False
     objdetect_enable: bool = True
     video_folder: str = ""

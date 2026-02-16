@@ -17,8 +17,8 @@ from output.overlay_util import overlay_obj_detect_observation
 from output.StreamServer import MjpegServer
 from pipeline.BlenderPoseEstimator import BlenderPoseEstimator
 from pipeline.CameraPoseEstimator import MultiBumperCameraPoseEstimator
-from pipeline.ObjectDetector import CoreMLObjectDetector
-from vision_types import ObjDetectObservation
+from pipeline.ObjectDetector import CoreMLObjectDetector, compute_tx_ty_deg
+from vision_types import ObjDetectObservation, ObjDetectTxyObservation
 from vision_types import CameraPoseObservation as CameraPoseObservationType
 
 
@@ -27,7 +27,7 @@ def objdetect_worker(
     height: int,
     width: int,
     q_in: queue.Queue[tuple[float, ConfigStore]],
-    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict, str]],
+    q_out: queue.Queue[tuple[float, List[ObjDetectObservation], dict, str, List[ObjDetectTxyObservation]]],
     server_port: int,
 ):
     """
@@ -92,7 +92,8 @@ def objdetect_worker(
                 model_path = config.local_config.obj_detect_model
                 print(f"[ObjDetectWorker] Loading CoreML model: {model_path}") #/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage
                 detector = CoreMLObjectDetector(model_path)
-            if pose_estimator is None:
+            tx_ty_only = getattr(config.local_config, "objdetect_tx_ty_only", False)
+            if not tx_ty_only and pose_estimator is None:
                 print(f"[ObjDetectWorker] Initializing Pose Estimator...")
                 if (config.local_config.obj_blender_lookup_csv is not None and
                     config.local_config.obj_blender_lookup_csv != ""):
@@ -111,18 +112,25 @@ def objdetect_worker(
             image = frame_buf.copy()  
             observations = []
             if detector is None:
-                #pose_estimator MUST be BlenderPoseEstimator if no detector
-                #use hsv thresholds to find oriented bounding rect
-                position, image, debug = pose_estimator.estimate_position(image, config)
-                if position is not None:
-                    pose_obs, debug = pose_estimator.position_to_field_pose(position, config, debug)
-                else:
+                if tx_ty_only:
                     pose_obs = None
+                    debug = "TXTY_ONLY_NO_DETECTOR"
+                else:
+                    #pose_estimator MUST be BlenderPoseEstimator if no detector
+                    #use hsv thresholds to find oriented bounding rect
+                    position, image, debug = pose_estimator.estimate_position(image, config)
+                    if position is not None:
+                        pose_obs, debug = pose_estimator.position_to_field_pose(position, config, debug)
+                    else:
+                        pose_obs = None
             else:
                 detections = detector.detect(image, config)
                 if detections is not None:
                     observations = detections
-                if observations:
+                if tx_ty_only:
+                    pose_obs = None
+                    debug = "TXTY_ONLY"
+                elif observations:
                     if type(pose_estimator) is BlenderPoseEstimator:
                         #find the biggest CORRECT observation
                         lowest_dist = float('inf')
@@ -152,14 +160,30 @@ def objdetect_worker(
                     pose_obs = None
                     debug = "NA IO"
             pose_serial, debug = _serialize_pose(pose_obs, debug)
+            txy_observations: List[ObjDetectTxyObservation] = []
+            if observations:
+                sorted_obs = sorted(observations, key=lambda o: o.confidence, reverse=True)
+                for obs in sorted_obs[:10]:
+                    txy = compute_tx_ty_deg(obs)
+                    if txy is None:
+                        continue
+                    tx_deg, ty_deg = txy
+                    txy_observations.append(
+                        ObjDetectTxyObservation(
+                            obj_class=obs.obj_class,
+                            confidence=obs.confidence,
+                            tx_deg=tx_deg,
+                            ty_deg=ty_deg,
+                        )
+                    )
             # Send results to main process
             try:
-                q_out.put((timestamp, observations, pose_serial,debug), block=False)
+                q_out.put((timestamp, observations, pose_serial, debug, txy_observations), block=False)
             except queue.Full:
                 # Drop oldest if main thread is behind
                 try:
                     _ = q_out.get_nowait()
-                    q_out.put((timestamp, observations, pose_serial,debug), block=False)
+                    q_out.put((timestamp, observations, pose_serial, debug, txy_observations), block=False)
                 except Exception:
                     pass
 
