@@ -55,7 +55,7 @@ class CoreMLObjectDetector(ObjectDetector):
         # cache for camera matrix inverse to avoid repeated inversion
         self._cached_camera_matrix = None
         self._cached_invK = None
-
+        self._last_lb = None
     def _ensure_invK(self, K: np.ndarray):
         """
         Cache the inverse of the camera matrix K. If K changes, update cache.
@@ -65,115 +65,101 @@ class CoreMLObjectDetector(ObjectDetector):
             self._cached_camera_matrix = K.copy()
             self._cached_invK = np.linalg.inv(self._cached_camera_matrix)
 
-    def _letterbox_resize_into_buffer(self, image: np.ndarray) -> np.ndarray:
+    def _letterbox_resize_into_buffer(self, image: np.ndarray):
         """
-        Resize (with aspect-preserving letterbox) directly into the preallocated buffer.
-        Returns the buffer (same object each call).
+        True letterbox:
+          scale = min(S/w, S/h)
+          new_w/h = round(w/h * scale)
+          pad on BOTH axes
+        Returns (buffer, scale, pad_x, pad_y, new_w, new_h)
         """
         h, w = image.shape[:2]
+        S = self.input_size
 
-        # compute target scaled height while keeping width=input_size
-        scaled_height = int(self.input_size / (w / h))
-        # clamp to [1, input_size]
-        scaled_height = max(1, min(self.input_size, scaled_height))
-        bar_height = (self.input_size - scaled_height) // 2
+        # IMPORTANT: clear buffer every frame (use YOLO-ish gray padding)
+        self._buffer[:] = 114
 
-        # resize into the buffer's slice to avoid allocating a new array
-        # cv2.resize supports dst parameter to write into slice memory
-        # ensure correct dtype and contiguous slice
-        dst_slice = self._buffer[bar_height : bar_height + scaled_height, 0 : self.input_size]
-        # cv2.resize does not accept shape mismatch dst; use work-around: resize to exact shape
-        resized = cv2.resize(image, (self.input_size, scaled_height))
-        dst_slice[:] = resized  # copy resized into buffer slice
+        scale = min(S / w, S / h)
+        new_w = int(round(w * scale))
+        new_h = int(round(h * scale))
 
-        # if image has alpha or gray, ensure 3 channels already handled upstream
-        return self._buffer
+        # symmetric padding (top-left used for mapping)
+        pad_x = (S - new_w) // 2
+        pad_y = (S - new_h) // 2
 
+        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        self._buffer[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
+
+        self._last_lb = (scale, pad_x, pad_y, new_w, new_h)
+        return self._buffer, scale, pad_x, pad_y, new_w, new_h
+
+    @staticmethod
+    def _xywh_center_to_xyxy(cx, cy, w, h):
+        return cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0
+
+    @staticmethod
+    def _xywh_topleft_to_xyxy(x, y, w, h):
+        return x, y, x + w, y + h
+
+    @staticmethod
+    def _unletterbox_xyxy(x1_l, y1_l, x2_l, y2_l, scale, pad_x, pad_y):
+        """
+        Convert from LETTERBOX pixel coords (0..S) back to original pixels.
+        """
+        x1 = (x1_l - pad_x) / scale
+        y1 = (y1_l - pad_y) / scale
+        x2 = (x2_l - pad_x) / scale
+        y2 = (y2_l - pad_y) / scale
+        return x1, y1, x2, y2
     def detect(self, image: np.ndarray, config: ConfigStore) -> List[ObjDetectObservation]:
-        # Convert greyscale to RGB if needed
+        # channel normalization
         if image.ndim == 2 or image.shape[2] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         elif image.shape[2] == 4:
             image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
 
-        # Create letterboxed input (reused buffer to avoid allocations)
-        input_image = self._letterbox_resize_into_buffer(image)
+        h_orig, w_orig = image.shape[:2]
 
-        # Run CoreML model - use predict_batch if available to keep compute unit hot
-        # CoreML expects a PIL Image for many vision models; creating the PIL
-        # object is unavoidable in many cases, but we keep it tight.
+        # preprocess
+        input_image, scale, pad_x, pad_y, new_w, new_h = self._letterbox_resize_into_buffer(image)
+
         pil = Image.fromarray(input_image)
 
-        prediction = None
         try:
-            # prefer predict_batch (returns list of dicts)
             predict_batch = getattr(self._model, "predict_batch", None)
             if callable(predict_batch):
-                batch_out = self._model.predict_batch([{"image": pil}])
-                # batch_out is a list of outputs; take first
-                prediction = batch_out[0]
+                prediction = self._model.predict_batch([{"image": pil}])[0]
             else:
                 prediction = self._model.predict({"image": pil})
-        except Exception as e:
-            # fallback to single predict if predict_batch fails for any reason
+        except Exception:
             prediction = self._model.predict({"image": pil})
 
         observations: List[ObjDetectObservation] = []
-
-        # If model returns no detections, be robust
-        if prediction is None:
+        if not prediction:
             return observations
 
-        coords = prediction.get("coordinates", [])
-        confidences = prediction.get("confidence", [])
+        coords = prediction.get("coordinates", None)
+        confidences = prediction.get("confidence", None)
 
-        if len(coords) == 0:
-            return observations
+        end2end_output = False
+        end2end_data = None
+        if coords is None or confidences is None:
+            if isinstance(prediction, dict) and len(prediction) == 1:
+                end2end_data = next(iter(prediction.values()))
+                end2end_output = True
+            else:
+                return observations
 
-        # prepare camera geometry caches
+        # camera geometry caches
         K = np.array(config.local_config.camera_matrix, dtype=np.float64)
         self._ensure_invK(K)
         invK = self._cached_invK
 
-        h_orig, w_orig = image.shape[:2]
-        scaled_height = int(self.input_size / (w_orig / h_orig))
-        bar_height = (self.input_size - scaled_height) // 2
-        # scaling factors used to map model coords back to original image
-        # model x coords are normalized to width, y coords normalized to input_size (640)
-        x_scale = w_orig
-        y_scale = scaled_height / self.input_size * h_orig  # careful: mapping via letterbox
-        y_offset_pixels = bar_height
+        min_conf = float(getattr(config.local_config, "obj_detect_min_conf", 0.05))
 
-        # iterate predictions
-        for coordinates, confidence_arr in zip(coords, confidences):
-            # coordinates format: [x_center_norm, y_center_norm, width_norm, height_norm]
-            # class selection
-            if isinstance(confidence_arr, (list, tuple, np.ndarray)):
-                obj_class = int(np.argmax(confidence_arr))
-                confidence = float(confidence_arr[obj_class])
-            else:
-                # If model emits single-class score or different format
-                obj_class = 0
-                confidence = float(confidence_arr)
+        def corners_to_angles_and_obs(obj_class: int, confidence: float, x1: float, y1: float, x2: float, y2: float):
+            corners = np.array([[x1, y1], [x2, y1], [x1, y2], [x2, y2]], dtype=np.float32)
 
-            # Map normalized model coordinates back to original image pixels
-            cx = float(coordinates[0]) * x_scale
-            cy = (float(coordinates[1]) * self.input_size - y_offset_pixels) / scaled_height * h_orig
-            w_box = float(coordinates[2]) * x_scale
-            # Note: model height coordinate may be normalized to input_size; adjust accordingly
-            h_box = float(coordinates[3]) / (scaled_height / self.input_size) * h_orig
-
-            # construct corner coordinates in original image pixel space
-            x_min = cx - w_box / 2.0
-            x_max = cx + w_box / 2.0
-            y_min = cy - h_box / 2.0
-            y_max = cy + h_box / 2.0
-
-            corners = np.array(
-                [[x_min, y_min], [x_max, y_min], [x_min, y_max], [x_max, y_max]], dtype=np.float32
-            )
-
-            # cv2.undistortPoints expects shape (N,1,2)
             corners_in = corners.reshape(-1, 1, 2).astype(np.float64)
             corners_undistorted = cv2.undistortPoints(
                 corners_in,
@@ -181,26 +167,151 @@ class CoreMLObjectDetector(ObjectDetector):
                 config.local_config.distortion_coefficients,
                 None,
                 K,
-            )  # returns (N,1,2)
-
-            # Flatten to (N,2)
+            )
             corners_uv = corners_undistorted.reshape(-1, 2)
 
-            # Build homogeneous coords (N,3) for vectorized invK multiply
             ones = np.ones((corners_uv.shape[0], 1), dtype=np.float64)
-            homog = np.hstack((corners_uv, ones))  # shape (4,3)
-
-            # Multiply invK (3x3) by each homogeneous column -> result (4,3)
-            vecs = (invK @ homog.T).T  # shape (4,3)
-
-            # Compute corner angles (atan of x,z? The original used atan(vec[0]) and atan(vec[1]))
-            # If vec is [X, Y, Z], dividing by Z might be intended, but original code used atan(vec[0]).
-            # We'll replicate original behavior: atan(X) and atan(Y)
-            corner_angles = np.arctan(vecs[:, :2])  # shape (4,2)
+            homog = np.hstack((corners_uv, ones))
+            vecs = (invK @ homog.T).T
+            corner_angles = np.arctan(vecs[:, :2])
 
             observations.append(ObjDetectObservation(obj_class, confidence, corner_angles, corners))
 
+        # ----------------------------
+        # NON-END2END: coordinates/confidence heads
+        # ----------------------------
+        if not end2end_output:
+            if coords is None or len(coords) == 0:
+                return observations
+
+            for coordinates, confidence_arr in zip(coords, confidences):
+                if isinstance(confidence_arr, (list, tuple, np.ndarray)):
+                    obj_class = int(np.argmax(confidence_arr))
+                    confidence = float(confidence_arr[obj_class])
+                else:
+                    obj_class = 0
+                    confidence = float(confidence_arr)
+
+                if confidence < min_conf:
+                    continue
+
+                c = np.asarray(coordinates, dtype=np.float32)
+                # Most YOLO-style exports: normalized 0..1 relative to S
+                if float(np.max(c)) <= 1.5:
+                    cx_l, cy_l, w_l, h_l = (c * self.input_size).tolist()
+                else:
+                    cx_l, cy_l, w_l, h_l = c.tolist()
+
+                x1_l, y1_l, x2_l, y2_l = self._xywh_center_to_xyxy(cx_l, cy_l, w_l, h_l)
+                x1, y1, x2, y2 = self._unletterbox_xyxy(x1_l, y1_l, x2_l, y2_l, scale, pad_x, pad_y)
+
+                # (optional) clamp to image bounds
+                x1 = max(0.0, min(x1, w_orig - 1.0))
+                x2 = max(0.0, min(x2, w_orig - 1.0))
+                y1 = max(0.0, min(y1, h_orig - 1.0))
+                y2 = max(0.0, min(y2, h_orig - 1.0))
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                corners_to_angles_and_obs(obj_class, confidence, x1, y1, x2, y2)
+
+            return observations
+
+        # ----------------------------
+        # END2END: [N,6] (x1,y1,x2,y2,conf,cls) OR variants
+        # ----------------------------
+        data = np.asarray(end2end_data)
+        if data.ndim == 3 and data.shape[0] == 1:
+            data = data[0]
+        if data.ndim != 2 or data.shape[1] < 6:
+            return observations
+
+        coords_raw = data[:, :4]
+        confs = data[:, 4]
+        clses = data[:, 5]
+
+        max_coord = float(np.max(coords_raw)) if coords_raw.size else 0.0
+        is_normalized = max_coord <= 1.5
+
+        # If coords are already in original pixel space (rare), detect it:
+        # (keeps your old “sometimes it’s already correct” safety net)
+        already_orig = (max_coord > self.input_size + 5) and (max_coord <= max(w_orig, h_orig) + 5)
+
+        def to_xyxy(c4, fmt):
+            if fmt == "xyxy":
+                return float(c4[0]), float(c4[1]), float(c4[2]), float(c4[3])
+            if fmt == "xywh_center":
+                return self._xywh_center_to_xyxy(float(c4[0]), float(c4[1]), float(c4[2]), float(c4[3]))
+            # xywh_top_left
+            return self._xywh_topleft_to_xyxy(float(c4[0]), float(c4[1]), float(c4[2]), float(c4[3]))
+
+        def map_to_orig_xyxy(x1_l, y1_l, x2_l, y2_l, mapping):
+            if already_orig:
+                return x1_l, y1_l, x2_l, y2_l
+
+            if mapping == "direct":
+                # no letterbox correction
+                x1 = x1_l / self.input_size * w_orig
+                x2 = x2_l / self.input_size * w_orig
+                y1 = y1_l / self.input_size * h_orig
+                y2 = y2_l / self.input_size * h_orig
+                return x1, y1, x2, y2
+
+            # correct letterbox unscale/unpad (THIS is what you were missing)
+            return self._unletterbox_xyxy(x1_l, y1_l, x2_l, y2_l, scale, pad_x, pad_y)
+
+        fmts = ["xyxy", "xywh_center", "xywh_top_left"]
+        mappings = ["letterbox", "direct"]
+
+        # pick the combo that yields the most “valid-looking” boxes
+        best_fmt = "xyxy"
+        best_mapping = "letterbox"
+        best_score = -1
+
+        for fmt in fmts:
+            for mapping in mappings:
+                valid = 0
+                for c4, conf in zip(coords_raw, confs):
+                    if float(conf) < min_conf:
+                        continue
+
+                    c = (c4 * self.input_size) if is_normalized else c4
+                    x1_l, y1_l, x2_l, y2_l = to_xyxy(c, fmt)
+                    x1, y1, x2, y2 = map_to_orig_xyxy(x1_l, y1_l, x2_l, y2_l, mapping)
+
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    if x2 < -5 or x1 > w_orig + 5 or y2 < -5 or y1 > h_orig + 5:
+                        continue
+                    valid += 1
+
+                if valid > best_score:
+                    best_score = valid
+                    best_fmt = fmt
+                    best_mapping = mapping
+
+        for c4, conf, cls in zip(coords_raw, confs, clses):
+            confidence = float(conf)
+            if confidence < min_conf:
+                continue
+            obj_class = int(cls)
+
+            c = (c4 * self.input_size) if is_normalized else c4
+            x1_l, y1_l, x2_l, y2_l = to_xyxy(c, best_fmt)
+            x1, y1, x2, y2 = map_to_orig_xyxy(x1_l, y1_l, x2_l, y2_l, best_mapping)
+
+            # clamp
+            x1 = max(0.0, min(x1, w_orig - 1.0))
+            x2 = max(0.0, min(x2, w_orig - 1.0))
+            y1 = max(0.0, min(y1, h_orig - 1.0))
+            y2 = max(0.0, min(y2, h_orig - 1.0))
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            corners_to_angles_and_obs(obj_class, confidence, x1, y1, x2, y2)
+
         return observations
+
 
 
 def compute_tx_ty_deg(observation: ObjDetectObservation) -> Optional[Tuple[float, float]]:

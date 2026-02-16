@@ -31,9 +31,24 @@ def main() -> int:
     p.add_argument("--out", type=str, default="detector.mlpackage")
 
     # Export knobs
-    p.add_argument("--nms", action="store_true", default=True)
-    p.add_argument("--half", action="store_true", default=True, help="FP16 export")
-    p.add_argument("--int8", action="store_true", default=True, help="INT8 export (fastest)")
+    p.add_argument(
+        "--nms",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable NMS in export when supported (end2end models will force False).",
+    )
+    p.add_argument(
+        "--half",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="FP16 export (recommended).",
+    )
+    p.add_argument(
+        "--int8",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="INT8 export (fastest). Requires --data for calibration to be reliable.",
+    )
     p.add_argument(
         "--data",
         type=str,
@@ -98,6 +113,27 @@ def main() -> int:
 
     print(f"[export_coreml.py] Copying:\n  from: {mlpackage}\n    to: {out_path}")
     shutil.copytree(mlpackage, out_path)
+
+    # Verify that outputs match ObjectDetector expectations
+    try:
+        import coremltools as ct  # type: ignore
+
+        mlmodel_path = out_path / "Data" / "com.apple.CoreML" / "model.mlmodel"
+        if mlmodel_path.exists():
+            spec = ct.models.MLModel(str(mlmodel_path)).get_spec()
+            out_names = {o.name for o in spec.description.output}
+            missing = {"coordinates", "confidence"} - out_names
+            if missing:
+                raise RuntimeError(
+                    f"CoreML outputs missing {missing}. "
+                    "This will not match ObjectDetector.py. "
+                    "Use a non-end2end model or export with NMS outputs."
+                )
+            print(f"[export_coreml.py] Verified outputs: {sorted(out_names)}")
+        else:
+            print("[WARN] Could not verify outputs: model.mlmodel not found in package.")
+    except Exception as e:
+        print("[WARN] Output verification failed:", repr(e))
 
     print("\n[DONE] Final CoreML package:")
     print(f"  {out_path}")

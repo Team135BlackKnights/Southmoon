@@ -241,4 +241,19 @@ def main() -> int:
         if args.show:
             cv2.imshow("PT Test", vis)
             key = cv2.waitKey(1)
+            if key == 27 or key == ord('q'):  # ESC or 'q' to quit
+                break
+
+    # Cleanup
+    if cap is not None:
+        cap.release()
+    if writer is not None:
+        writer.release()
+    cv2.destroyAllWindows()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
     
