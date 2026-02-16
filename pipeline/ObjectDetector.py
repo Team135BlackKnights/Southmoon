@@ -349,8 +349,33 @@ def compute_tx_ty_distance(
     tx_rad = float(center[0])
     ty_rad = float(center[1])  # OpenCV camera frame: +down
 
+    # Prefer computing tx/ty from undistorted center pixel if available (better centering)
     tx_deg = math.degrees(tx_rad)
     ty_deg = -math.degrees(ty_rad)
+    K = config.local_config.camera_matrix
+    dist = config.local_config.distortion_coefficients
+    if observation.corner_pixels is not None and K is not None:
+        corners_px = np.asarray(observation.corner_pixels, dtype=np.float64)
+        if corners_px.size != 0 and corners_px.shape[-1] == 2:
+            min_xy = corners_px.min(axis=0)
+            max_xy = corners_px.max(axis=0)
+            center_px = np.array(
+                [(min_xy[0] + max_xy[0]) / 2.0, (min_xy[1] + max_xy[1]) / 2.0], dtype=np.float64
+            )
+            K = np.asarray(K, dtype=np.float64)
+            if K.shape == (3, 3):
+                if dist is None:
+                    dist = np.zeros((5,), dtype=np.float64)
+                else:
+                    dist = np.asarray(dist, dtype=np.float64)
+                pts = center_px.reshape(1, 1, 2)
+                norm = cv2.undistortPoints(pts, K, dist, P=None)
+                x_norm = float(norm[0, 0, 0])
+                y_norm = float(norm[0, 0, 1])
+                tx_rad = math.atan(x_norm)
+                ty_rad = math.atan(y_norm)
+                tx_deg = math.degrees(tx_rad)
+                ty_deg = -math.degrees(ty_rad)
 
     # Size-based distance (prefer for reliability when looking upward)
     if observation.corner_pixels is not None:
