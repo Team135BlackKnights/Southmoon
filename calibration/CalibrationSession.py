@@ -34,14 +34,7 @@ class CalibrationSession:
 
         # Detect tags
         (corners, ids, rejected) = cv2.aruco.detectMarkers(image, self._aruco_dict, parameters=self._aruco_params)
-        if save:
-            print("Saving frame for future use.")
-            #save image without markers drawn to file
-            #confirm directory exists/ create it
-            if not os.path.exists("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/"):
-                os.makedirs("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/")
-            cv2.imwrite("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/frame_"
-                        + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".png", image)
+        
         if len(corners) > 0:
             cv2.aruco.drawDetectedMarkers(image, corners)
 
@@ -56,7 +49,14 @@ class CalibrationSession:
                 if save and charuco_corners is not None and len(charuco_corners) > 3:
                     self._all_charuco_corners.append(charuco_corners)
                     self._all_charuco_ids.append(charuco_ids)
-                    
+        if save:
+                    print("Saving frame for future use.")
+                    #save image without markers drawn to file
+                    #confirm directory exists/ create it
+                    if not os.path.exists("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/"):
+                        os.makedirs("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/")
+                    cv2.imwrite("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/frame_"
+                                + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".png", image)
 
     def finish(self) -> None:
         if len(self._all_charuco_corners) == 0:
