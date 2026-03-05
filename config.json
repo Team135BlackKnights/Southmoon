@@ -10,8 +10,8 @@
   "objdetect_tx_ty_only": true,
   "obj_detect_min_conf": 0.05,
   "obj_detect_target_z_m": 0.0762,
-  "obj_detect_max_fps": 30,
-  "apriltags_enable": true,
+  "obj_detect_max_fps": 50,
+  "apriltags_enable": false,
   "objdetect_enable": true,
   "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
 }
