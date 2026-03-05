@@ -18,3 +18,4 @@ yolov8x.pt
 /halved.mlpackage
 /setup/FuelYOLO26
 /setup/runs
+/calibration_images
