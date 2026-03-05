@@ -15,48 +15,47 @@ from config.ConfigSource import FileConfigSource
 
 
 class CalibrationSession:
-    _all_charuco_corners: List[numpy.ndarray] = []
-    _all_charuco_ids: List[numpy.ndarray] = []
-    _imsize = None
-
     NEW_CALIBRATION_FILENAME = "/Users/pennrobotics/Documents/GitHub/Southmoon/new_calibration.json"
 
     def __init__(self) -> None:
+        self._all_charuco_corners: List[numpy.ndarray] = []
+        self._all_charuco_ids: List[numpy.ndarray] = []
+        self._imsize = None
+
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_1000)
-        self._aruco_params = cv2.aruco.DetectorParameters()
         self._charuco_board = cv2.aruco.CharucoBoard((16, 10), 0.026, 0.019, self._aruco_dict)
+        self._charuco_detector = cv2.aruco.CharucoDetector(self._charuco_board)
 
     def process_frame(self, image: cv2.Mat, save: bool) -> None:
         # Get image size
-        if self._imsize == None:
+        if self._imsize is None:
             self._imsize = (image.shape[1], image.shape[0])
 
+        # Detect charuco board using modern API (matches CharucoBoard constructor)
+        charuco_corners, charuco_ids, marker_corners, marker_ids = self._charuco_detector.detectBoard(image)
 
-        # Detect tags
-        (corners, ids, rejected) = cv2.aruco.detectMarkers(image, self._aruco_dict, parameters=self._aruco_params)
-        
-        if len(corners) > 0:
-            cv2.aruco.drawDetectedMarkers(image, corners)
-
-            # Find Charuco corners
-            (retval, charuco_corners, charuco_ids) = cv2.aruco.interpolateCornersCharuco(
-                corners, ids, image, self._charuco_board
-            )
-            if retval:
-                cv2.aruco.drawDetectedCornersCharuco(image, charuco_corners, charuco_ids)
-
-                # Save corners
-                if save and charuco_corners is not None and len(charuco_corners) > 3:
-                    self._all_charuco_corners.append(charuco_corners)
-                    self._all_charuco_ids.append(charuco_ids)
         if save:
-                    print("Saving frame for future use.")
-                    #save image without markers drawn to file
-                    #confirm directory exists/ create it
-                    if not os.path.exists("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/"):
-                        os.makedirs("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/")
-                    cv2.imwrite("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/frame_"
-                                + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".png", image)
+            print("Saving frame for future use.")
+            if not os.path.exists("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/"):
+                os.makedirs("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/")
+            cv2.imwrite("/Users/pennrobotics/Documents/GitHub/Southmoon/calibration_images/frame_"
+                        + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".png", image)
+
+        if marker_corners is not None and len(marker_corners) > 0:
+            cv2.aruco.drawDetectedMarkers(image, marker_corners, marker_ids)
+
+        if charuco_corners is not None and len(charuco_corners) > 0:
+            cv2.aruco.drawDetectedCornersCharuco(image, charuco_corners, charuco_ids)
+
+            if save and len(charuco_corners) > 3:
+                self._all_charuco_corners.append(charuco_corners)
+                self._all_charuco_ids.append(charuco_ids)
+                print(f"Captured frame with {len(charuco_corners)} charuco corners "
+                      f"(total frames: {len(self._all_charuco_corners)})")
+            elif save:
+                print(f"Frame had only {len(charuco_corners)} charuco corners (need >3), skipping")
+        elif save:
+            print("No charuco corners detected on this frame")
 
     def finish(self) -> None:
         if len(self._all_charuco_corners) == 0:
