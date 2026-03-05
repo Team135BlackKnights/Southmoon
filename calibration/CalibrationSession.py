@@ -24,6 +24,7 @@ class CalibrationSession:
 
         self._aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_1000)
         self._charuco_board = cv2.aruco.CharucoBoard((16, 10), 0.026, 0.019, self._aruco_dict)
+        self._charuco_board.setLegacyPattern(True)
         self._charuco_detector = cv2.aruco.CharucoDetector(self._charuco_board)
 
     def process_frame(self, image: cv2.Mat, save: bool) -> None:
