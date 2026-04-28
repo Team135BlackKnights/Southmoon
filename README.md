@@ -2,9 +2,9 @@
 
 Northstar is 6328's AprilTag tracking and object detection system.
 
-Southmoon, on the other hand, is random.
+Southmoon, on the other hand, is 135's, and has been built around easier development, more efficient Aruco/Apriltag detection, and more cameras.
 
-Object detection models can be found [here](https://drive.google.com/drive/folders/1l3Bx3FGBGiY3hcpaPtvrNNPMZHChCi9w?usp=sharing), and are available under an AGPL-3.0 license located in the same folder.
+To get a new Mac Mini set up, you will need to use Time Machine.
 
 STEPS:
 1. nano ~/start_cameras.sh

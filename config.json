@@ -1,4 +1,5 @@
 {
+  "_comment": "Added comment",
   "device_id": "IntakeCam",
   "server_ip": "10.1.35.2",
   "apriltags_stream_port": 5801,

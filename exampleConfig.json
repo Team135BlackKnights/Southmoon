@@ -1,0 +1,18 @@
+{
+  "DO NOT ATTEMPT TO RUN THIS FILE!": " // is where comments are",
+  "device_id": "IntakeCam // This must match the RobotContainer.java name for some camera for the NT to register.",  
+  "server_ip": "10.1.35.2 // RoboRIO IP. The ONLY valid ports at Comp are 5800-5810",
+  "apriltags_stream_port": 5801,
+  "objdetect_stream_port": 5802,
+  "capture_impl": "usb // options are found at the bottom of Capture.py",
+  "obj_detect_model": "/Users/pennrobotics/Documents/GitHub/Southmoon/Setup/best.mlpackage // This could be an .mlmodel too",
+  "obj_blender_lookup_csv": "/Users/pennrobotics/Documents/GitHub/Southmoon/FullData.csv // Trained by Blender, used only with static cams, and supports oriented detections / tx/ty only. ",
+  "obj_use_oriented_detection": false,
+  "objdetect_tx_ty_only": true,
+  "obj_detect_min_conf": 0.05,
+  "obj_detect_target_z_m   //the center height of the object being detected": 0.0762,
+  "obj_detect_max_fps": 50,
+  "apriltags_enable": false,
+  "objdetect_enable": true,
+  "video_folder": "/Users/pennrobotics/Documents/GitHub/Southmoon/videos/"
+}
