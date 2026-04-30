@@ -1,9 +1,4 @@
-# Copyright (c) 2025 FRC 6328
-# http://github.com/Mechanical-Advantage
-#
-# Use of this source code is governed by an MIT-style
-# license that can be found in the LICENSE file at
-# the root directory of this project.
+#This runs the Apriltag worker, and is by default opened in memeory on EVERY instance of camera
 
 import queue
 from typing import List, Tuple, Union
@@ -33,19 +28,30 @@ def apriltag_worker(
     ],
     server_port: int,
 ):
-    fiducial_detector = ArucoFiducialDetector(cv2.aruco.DICT_APRILTAG_36h11)
-    camera_pose_estimator = MultiTargetCameraPoseEstimator()
-    tag_angle_calculator = CameraMatrixTagAngleCalculator()
+    '''
+    input: 
+        a timestamp 
+        a frame
+        a config store (remote+local)
+    output: 
+        timestamp completed
+        fidicial tags detected (corner included), could be none
+        pose data, including which tags were used, both poses (ambig unsolved), and errors. Cannot be none, since errors must be updated.
+        tag angles, so TX/TY pairs. Could be none.
+    '''
+    fiducial_detector = ArucoFiducialDetector(cv2.aruco.DICT_APRILTAG_36h11) #aruco 3
+    camera_pose_estimator = MultiTargetCameraPoseEstimator() #3D SolvePNP
+    tag_angle_calculator = CameraMatrixTagAngleCalculator() #undistorts the points for TxTy.
     stream_server = MjpegServer()
     stream_server.start(server_port)
 
     while True:
-        sample = q_in.get()
+        sample = q_in.get() #Blocking
         timestamp: float = sample[0]
         image: cv2.Mat = sample[1]
         config: ConfigStore = sample[2]
 
-        image_observations = fiducial_detector.detect_fiducials(image, config)
+        image_observations = fiducial_detector.detect_fiducials(image, config) #only ever done once per frame
         camera_pose_observation = camera_pose_estimator.solve_camera_pose(
             [x for x in image_observations], config
         )
@@ -56,7 +62,7 @@ def apriltag_worker(
         q_out.put(
             (timestamp, image_observations, camera_pose_observation, tag_angle_observations)
         )
-        if stream_server.get_client_count() > 0:
+        if stream_server.get_client_count() > 0: #if we are CURRENTLY LOOKING AT THIS CAMERA IN A WEB BROWSER
             image = image.copy()
-            [overlay_image_observation(image, x) for x in image_observations]
+            [overlay_image_observation(image, x) for x in image_observations] #simple OpenCV boxes
             stream_server.set_frame(image)

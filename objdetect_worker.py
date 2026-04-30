@@ -1,10 +1,3 @@
-# Copyright (c) 2025 FRC 6328
-# http://github.com/Mechanical-Advantage
-#
-# Use of this source code is governed by an MIT-style
-# license that can be found in the LICENSE file at
-# the root directory of this project.
-
 import queue
 import traceback
 import numpy as np
@@ -32,7 +25,7 @@ def objdetect_worker(
 ):
     """
     Shared-memory object detection worker.
-    Receives frames via SharedMemory and lightweight config objects via q_in.
+    Receives frames via SharedMemory and lightweight config objects via q_in, then does pickling.
 
     Workflow:
       - Initialize model and pose estimator on first frame
@@ -47,12 +40,12 @@ def objdetect_worker(
     frame_buf = np.ndarray((height, width, 3), dtype=np.uint8, buffer=shm.buf)
 
     detector = None
-    pose_estimator: MultiBumperCameraPoseEstimator | BlenderPoseEstimator | None = None
+    pose_estimator: MultiBumperCameraPoseEstimator | BlenderPoseEstimator | None = None #Are we detecting robots, objects (angle OR no angle), or neither (bad config!)
     stream_server = MjpegServer()
     stream_server.start(server_port)
     last_sent_ts = 0.0
     def _serialize_pose(pose: Union[CameraPoseObservationType, None], debug: str) -> Tuple[dict, str]:
-        """Convert pose object into a serializable dict for IPC."""
+        """Convert pose object into a serializable dict for IPC / python pickling."""
         if pose is None:
             debug += "\nPose is None; returning None."
             return None, debug
@@ -85,9 +78,8 @@ def objdetect_worker(
 
     while True:
         try:
-            # Wait for next job: (timestamp, config)
-            timestamp, config = q_in.get()
-
+            timestamp, config = q_in.get() #blocking
+            #LEFT OFF HERE!
             if detector is None and config.local_config.obj_detect_model != "":
                 model_path = config.local_config.obj_detect_model
                 print(f"[ObjDetectWorker] Loading CoreML model: {model_path}") #/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage
