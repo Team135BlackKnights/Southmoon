@@ -1,5 +1,5 @@
 #!/bin/zsh
-
+#^That makes MacOS run zsh.^
 echo "Starting all Southmoon cameras at $(date)" >> /Users/pennrobotics/Library/Logs/Southmoon/camera_log.txt
 
 # Activate virtual environment
@@ -17,10 +17,10 @@ run_camera() {
     while true; do
         echo "$(date): Starting $camera_name" >> /Users/pennrobotics/Library/Logs/Southmoon/camera_log.txt
         python3 init.py --config "$config_file" --calibration "$calib_file" 2>&1 | while IFS= read -r line; do
-            echo "[$camera_name] $line"
+            echo "[$camera_name] $line".   #This is a known bug, where it simply doesn't go to camera_log. Womp womp.
         done
         echo "$(date): $camera_name exited. Restarting in 2 seconds..." >> /Users/pennrobotics/Library/Logs/Southmoon/camera_log.txt
-        sleep 2
+        sleep 2 #we wait for the camera threads to exit.
     done
 }
 
@@ -32,9 +32,9 @@ run_camera() {
 # If you have multiple cameras, add them here:
  run_camera "config.json" "calibration.json" "IntakeCam" &
  run_camera "config2.json" "calibration2.json" "BackRightCam" &
- run_camera "config3.json" "calibration3.json" "BackLeftCam" &
+ run_camera "config3.json" "calibration3.json" "BackLeftCam" &    #in ZSH, extending &'s are okay here.
 # run_camera "setup/config_rightCam.json" "setup/calibration_rightCam.json" "RightCam" &
 # run_camera "setup/config_extraFrontCam.json" "setup/calibration_extraFrontCam.json" "ExtraFrontCam" &
 
-# Wait for all background processes
+# Wait for all background processes, aka never stop until forced, since reboots auto happen.
 wait
