@@ -34,6 +34,8 @@ class CameraMatrixTagAngleCalculator(TagAngleCalculator):
     def calc_tag_angles(
         self, image_observation: FiducialImageObservation, config_store: ConfigStore
     ) -> Union[TagAngleObservation, None]:
+        '''Using a RAW camera output, get TxTy, and distance'''
+        
         # Undistort corners
         corners_undistorted = cv2.undistortPoints(
             image_observation.corners,

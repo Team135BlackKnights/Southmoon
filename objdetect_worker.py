@@ -77,9 +77,9 @@ def objdetect_worker(
             return None, debug + "\nPose serialization failed."
 
     while True:
+        #Confirm we have the correct model loaded, load the frame, use the correct model, return pickled data.
         try:
             timestamp, config = q_in.get() #blocking
-            #LEFT OFF HERE!
             if detector is None and config.local_config.obj_detect_model != "":
                 model_path = config.local_config.obj_detect_model
                 print(f"[ObjDetectWorker] Loading CoreML model: {model_path}") #/Users/pennrobotics/Documents/GitHub/Southmoon/int8Bumpers.mlpackage
@@ -89,9 +89,9 @@ def objdetect_worker(
                 print(f"[ObjDetectWorker] Initializing Pose Estimator...")
                 if (config.local_config.obj_blender_lookup_csv is not None and
                     config.local_config.obj_blender_lookup_csv != ""):
-                    pose_estimator = BlenderPoseEstimator(config.local_config.obj_blender_lookup_csv)
+                    pose_estimator = BlenderPoseEstimator(config.local_config.obj_blender_lookup_csv) # /Users/pennrobotics/Documents/GitHub/Southmoon/FullData.csv
                 else:
-                    pose_estimator = MultiBumperCameraPoseEstimator()
+                    pose_estimator = MultiBumperCameraPoseEstimator() #IF YOU ARE USING THIS, GO TO THIS CLASS!
                     
             max_fps = getattr(config.local_config, "obj_detect_max_fps", -1)
             if max_fps and max_fps > 0:
@@ -100,7 +100,7 @@ def objdetect_worker(
                     continue
                 last_sent_ts = timestamp
 
-            # Copy frame from shared memory
+            # Copy frame from shared memory / pickle file
             image = frame_buf.copy()  
             observations = []
             if detector is None:
@@ -116,7 +116,7 @@ def objdetect_worker(
                     else:
                         pose_obs = None
             else:
-                detections = detector.detect(image, config)
+                detections = detector.detect(image, config) #MlModel/Package
                 if detections is not None:
                     observations = detections
                 if tx_ty_only:
@@ -124,7 +124,8 @@ def objdetect_worker(
                     debug = "TXTY_ONLY"
                 elif observations:
                     if type(pose_estimator) is BlenderPoseEstimator:
-                        #find the biggest CORRECT observation
+                        #find the biggest CORRECT observation, doing error correction HERE.
+                        #This is done because not all object pipelines provide multiple observations.
                         lowest_dist = float('inf')
                         best_position = None
                         best_debug = ''
@@ -169,13 +170,14 @@ def objdetect_worker(
                             distance_m=distance_m,
                         )
                     )
-            # Send results to main process
+            # Send results to main process, and don't block so we can process another frame 
+            #in the event we somehow processed two frames before two frames were taken, that old frame will be LOST.
             try:
                 q_out.put((timestamp, observations, pose_serial, debug, txy_observations), block=False)
             except queue.Full:
                 # Drop oldest if main thread is behind
                 try:
-                    _ = q_out.get_nowait()
+                    _ = q_out.get_nowait() #drop
                     q_out.put((timestamp, observations, pose_serial, debug, txy_observations), block=False)
                 except Exception:
                     pass
@@ -195,8 +197,8 @@ def objdetect_worker(
             break
         except Exception as e:
             print(f"[ObjDetectWorker] Error: {e}")
-            traceback.print_exc()
+            traceback.print_exc() #forcefully print whole stack, errors should be extremely uncommon here.
             continue
 
-    shm.close()
+    shm.close() #WILL NOT FREE MEMORY UNTIL UNLINKED IN 'init.py'
     stream_server.stop()

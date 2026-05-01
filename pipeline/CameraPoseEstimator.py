@@ -1,9 +1,5 @@
-# Copyright (c) 2025 FRC 6328
-# http://github.com/Mechanical-Advantage
-#
-# Use of this source code is governed by an MIT-style
-# license that can be found in the LICENSE file at
-# the root directory of this project.
+# Copyright The Big GPT
+# A lot of the math for the MultiBumperCameraPoseEstimator was taken from GPT 5.2
 
 from typing import List, Union
 
@@ -27,7 +23,7 @@ class CameraPoseEstimator:
         self, image_observations: List[FiducialImageObservation], config_store: ConfigStore
     ) -> Union[CameraPoseObservation, None]:
         raise NotImplementedError
-
+#Be sure to change the bumper_size_m! (for the estimated size of the bumpers in the real world)
 class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
     def __init__(self, bumper_size_m: float = 0.8382, bottom_z: float = 0.0, top_z: float = 0.1778):
         self.bumper_size_m = bumper_size_m
@@ -35,6 +31,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         self.top_z = top_z
 
     def _unpack_pose3d(self, pose3d: List[float]):
+        '''Standard Pose3d logic from WPILib'''
         tx = pose3d[0]
         ty = pose3d[1]
         tz = pose3d[2]
@@ -45,6 +42,9 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return numpy.array([tx, ty, tz], dtype=float), (qw, qx, qy, qz)
 
     def _quat_to_rotmat(self, q):
+        '''Turn a WPILib Quaternion into a rotation mat for OpenCV use.
+            Used by the FieldPose -> openCV pose.
+        '''
         qw, qx, qy, qz = q
         n = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
         if n == 0:
@@ -61,6 +61,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         return R
 
     def _rotmat_to_quat(self, R):
+        '''Turn a OpenCV into a WPILib Quaternion'''
         m00, m01, m02 = R[0, 0], R[0, 1], R[0, 2]
         m10, m11, m12 = R[1, 0], R[1, 1], R[1, 2]
         m20, m21, m22 = R[2, 0], R[2, 1], R[2, 2]
@@ -115,6 +116,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
         ray_dirs_field: list of 2 normalized direction vectors (Nx3)
         real_width: known physical distance between top corners (m)
         bumper_height: known vertical distance from top to bottom (m)
+        Warning: this function is very risky, if a ray is calculated below the camera, it will go to infinity (0 / 0).
         """
         if len(ray_dirs_field) != 2:
             raise ValueError("Need exactly two ray directions")
@@ -397,6 +399,7 @@ class MultiBumperCameraPoseEstimator(CameraPoseEstimator):
             "\n".join(debug_msgs),
         )
 class MultiTargetCameraPoseEstimator(CameraPoseEstimator):
+    '''Used Exclusively by Apriltag_worker.py'''
     def __init__(self) -> None:
         pass
 

@@ -40,9 +40,9 @@ PU_WHITE_BALANCE_TEMPERATURE_CONTROL = 0x0A
 PU_WHITE_BALANCE_TEMPERATURE_AUTO_CONTROL = 0x0B
 PU_BRIGHTNESS_CONTROL = 0x02
 
-# Auto exposure modes
+# Auto exposure modes, currently unused as MacOS does not support it, but in the event a Linux device is used, it should auto work
 AE_MODE_MANUAL = 1
-AE_MODE_AUTO = 8  # Aperture priority mode
+AE_MODE_AUTO = 8  # 'Aperture priority mode'
 AE_MODE_SHUTTER_PRIORITY = 4
 AE_MODE_APERTURE_PRIORITY = 8
 
@@ -62,6 +62,8 @@ class Capture:
     
     @classmethod
     def _config_changed(cls, config_a: ConfigStore, config_b: ConfigStore) -> bool:
+        '''Should be updated wheneever remote config parameters are added.'''
+        
         if config_a == None and config_b == None:
             return False
         if config_a == None or config_b == None:
@@ -86,7 +88,9 @@ class Capture:
 
 
 class USBCameraCapture(Capture):
-    """Read from USB camera with direct UVC control for exposure and other settings."""
+    """Read from USB camera with direct UVC control for exposure and other settings.
+       Only supported on Linux and MacOS, untested on Windows.
+    """
 
     def __init__(self) -> None:
         self._cv_capture = None
@@ -102,6 +106,9 @@ class USBCameraCapture(Capture):
 
     def _get_iokit_location_id(self, dev, config_store: ConfigStore) -> Optional[str]:
         """Best-effort: get macOS IOKit Location ID for a USB device as lowercase hex without 0x.
+            What is this, "IsTextUnicode" from Windows? (This CAN fail for new versions of MacOS.
+                    since they may encode the LocationID hex value differently.)
+                    In that event, try viewing the hex value, and changing the size of different int sizes
         """
         
         try:
@@ -118,8 +125,8 @@ class USBCameraCapture(Capture):
                 ["system_profiler", "SPUSBDataType", "-json"],
                 capture_output=True,
                 text=True,
-                timeout=5,
-            )
+                timeout=5, #5 seconds lol, just in case a camera needs to reboot. BLOCKING.
+            ) #Manually run in terminal ^that^ command.
             if sp.returncode != 0 or not sp.stdout:
                 return None
             data = json.loads(sp.stdout)
@@ -206,7 +213,9 @@ class USBCameraCapture(Capture):
 
             
     def _get_usb_cameras(self) -> List[Dict]:
-        """Get list of USB video devices with unique identifiers."""
+        """Get list of USB video devices with unique identifiers.
+            This is a "raw" function, which returns ANY found "video" devices
+        """
         cameras = []
         
         # Find all USB devices that might be cameras
@@ -261,7 +270,7 @@ class USBCameraCapture(Capture):
                     else:
                         # Fall back to bus/address if no serial
                         unique_id = f"usb_{vendor_id:04x}_{product_id:04x}_{dev.bus:03d}_{dev.address:03d}"
-                    if vendor_id == 0x05c8:
+                    if vendor_id == 0x05c8: #A ThriftyCam!
                         # Best effort: fetch IOKit Location ID (macOS) for clarity and downstream use
                         cameras.append({
                             'index': video_device_index,
@@ -278,7 +287,7 @@ class USBCameraCapture(Capture):
                     
                         video_device_index += 1
                     else:
-                        #TODO: remove this else after testing
+                        #Currently, in case we use non-thrifty cams
                         cameras.append({
                             'index': video_device_index,
                             'name': product_name,
@@ -291,7 +300,7 @@ class USBCameraCapture(Capture):
                             'full_id': f"{product_name}:{unique_id}",
                             'device': dev  # Keep reference to USB device
                         })
-                    # Microsoft® LifeCam HD-3000:usb_045e_0810_003_005', 'USB BillBoard:usb_057e_2003_SN23456789
+                    # Microsoft® LifeCam HD-3000:usb_045e_0810_003_005', 'USB BillBoard:usb_057e_2003_SN23456789' (don't ask)
                         video_device_index += 1 
                     
             except Exception as e:
@@ -390,7 +399,7 @@ class USBCameraCapture(Capture):
             print("macOS detected: skipping direct UVC controls and using AVFoundation/OpenCV props")
             self._apply_opencv_settings(config_store)
             return
-        
+        #don't remove this try except, since its for linux
         try:
             # Find control units if not cached
             if 'units' not in self._camera_controls:
@@ -798,7 +807,7 @@ class GStreamerCapture(Capture):
         else:
             return False, cv2.Mat(numpy.ndarray([]))
 
-
+#All options available to the json config file are here!
 CAPTURE_IMPLS = {
     "usb": USBCameraCapture,
     "pylon": lambda: PylonCapture(),

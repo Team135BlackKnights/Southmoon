@@ -14,6 +14,7 @@ from wpimath.geometry import *
 
 
 def openCvPoseToWpilib(tvec: numpy.typing.NDArray[numpy.float64], rvec: numpy.typing.NDArray[numpy.float64]) -> Pose3d:
+    '''Turn an OpenCV list of a position into a Pose3d, similar to what's found in CameraPoseEstimator '''
     return Pose3d(
         Translation3d(tvec[2][0], -tvec[0][0], -tvec[1][0]),
         Rotation3d(

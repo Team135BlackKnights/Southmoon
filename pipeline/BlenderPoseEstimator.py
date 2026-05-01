@@ -10,6 +10,10 @@ import pandas as pd
 from wpimath.geometry import Pose3d, Translation3d, Rotation3d, Quaternion, Transform3d
 
 class BlenderPoseEstimator:
+    '''
+    Given a pregenerated list of dimensions and positions of an object, and a corresponding list of position and angle,
+    turn a generated bounding box or oriented bounding box into a Pose3d (no Z data though)
+    '''
     lookup_df: pd.DataFrame
     last_ai_angle: float | None
     last_mask_center: tuple[int, int] | None
@@ -44,10 +48,10 @@ class BlenderPoseEstimator:
             w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
             w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
         )
-    # Detect game pice by color
+    # Detect game pice by color, OR YOUR OWN DETECTION METHOD (as long as its replicable in blender)! 
     # And create a rect around the detection
     def find_bounding_rect(self,image, lower_color, upper_color):
-        """    Detects the largest contour of a specified color in the image and returns its bounding rectangle.
+        """Detects the largest contour of a specified color in the image and returns its bounding rectangle.
         Args:
             image (numpy.ndarray): The input image in which to find the contour.
             lower_color (tuple): The lower bound of the color in HSV format.
@@ -126,6 +130,7 @@ class BlenderPoseEstimator:
         """
         Exponential moving average on circular angle [0,180)
         alpha = responsiveness (lower = smoother)
+        This is used to reduce noice in outputted positions
         """
         if new_angle is None:
             return self._last_ai_angle
@@ -441,7 +446,7 @@ class BlenderPoseEstimator:
 
         if points.shape[0] >= 3:
             ordered = np.array([points[0], points[1], points[3], points[2]], dtype=np.float32)
-            #implement angle WITH drawing
+            #implement angle WITH drawing to the screen, so we can send that back to the recording/web server
             oriented_angle, image = self.oriented_angle_from_polygon_mask(image=image,ordered_pts=ordered)
             if self._last_mask_center is not None:
                 cx, cy = self._last_mask_center
